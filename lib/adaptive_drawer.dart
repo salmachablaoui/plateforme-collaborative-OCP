@@ -2,11 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:provider/provider.dart';
+
+class NavigationProvider extends ChangeNotifier {
+  String _currentRoute = '/home';
+
+  String get currentRoute => _currentRoute;
+
+  void navigateTo(String route) {
+    _currentRoute = route;
+    notifyListeners();
+  }
+}
 
 class AdaptiveDrawer extends StatelessWidget {
   const AdaptiveDrawer({super.key});
 
-  // Couleurs corporate OCP
+  // Couleurs corporate
   static const primaryColor = Color(0xFF2F9D4E);
   static const primaryDark = Color(0xFF1E8449);
   static const primaryLight = Color(0xFFE8F5E9);
@@ -15,14 +27,14 @@ class AdaptiveDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final User? user = FirebaseAuth.instance.currentUser;
-    final bool isDesktop = MediaQuery.of(context).size.width >= 768;
-    final bool isTablet = MediaQuery.of(context).size.width >= 600;
+    final bool isDesktop = MediaQuery.sizeOf(context).width >= 768;
+    final bool isTablet = MediaQuery.sizeOf(context).width >= 600;
 
     return Drawer(
       width:
           isDesktop
               ? 300
-              : (isTablet ? 260 : MediaQuery.of(context).size.width * 0.8),
+              : (isTablet ? 260 : MediaQuery.sizeOf(context).width * 0.8),
       backgroundColor: Colors.white,
       elevation: 8,
       shape: const RoundedRectangleBorder(
@@ -30,26 +42,16 @@ class AdaptiveDrawer extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header avec photo de profil
           _buildHeader(context, user),
-
-          // Section de navigation principale
           Expanded(
-            child: CustomScrollView(
-              slivers: [
-                SliverList(
-                  delegate: SliverChildListDelegate([
-                    const SizedBox(height: 8),
-                    _buildNavigationSection(),
-                    _buildToolsSection(),
-                    _buildSupportSection(),
-                  ]),
-                ),
+            child: ListView(
+              children: [
+                const SizedBox(height: 8),
+                _buildMainSection(context),
+                _buildSecondarySection(context),
               ],
             ),
           ),
-
-          // Footer avec déconnexion
           _buildFooter(context),
         ],
       ),
@@ -57,14 +59,12 @@ class AdaptiveDrawer extends StatelessWidget {
   }
 
   Widget _buildHeader(BuildContext context, User? user) {
+    final String? photoUrl = user?.photoURL;
+
     return Container(
-      height: 200,
+      height: 180,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [primaryDark, primaryColor],
-        ),
+        color: primaryColor,
         borderRadius: const BorderRadius.only(bottomRight: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
@@ -75,65 +75,51 @@ class AdaptiveDrawer extends StatelessWidget {
         ],
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          // Effet de bulles décoratives
           Positioned(
-            top: -30,
-            right: -30,
+            top: -20,
+            right: -20,
             child: Container(
-              width: 100,
-              height: 100,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.1),
+                color: primaryDark.withOpacity(0.2),
               ),
             ),
           ),
-
-          // Contenu du header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Avatar avec badge de statut
-                Center(
-                  child: Stack(
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
                     children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                        child: ClipOval(
-                          child: Image.network(
-                            user?.photoURL ?? 'https://i.imgur.com/Qy1K5Z0.png',
-                            fit: BoxFit.cover,
-                            errorBuilder:
-                                (_, __, ___) => Icon(
+                      CircleAvatar(
+                        radius: 36,
+                        backgroundColor:
+                            photoUrl == null
+                                ? primaryLight
+                                : Colors.transparent,
+                        backgroundImage:
+                            photoUrl != null ? NetworkImage(photoUrl) : null,
+                        child:
+                            photoUrl == null
+                                ? const Icon(
                                   Iconsax.user,
-                                  size: 36,
-                                  color: Colors.white,
-                                ),
-                          ),
-                        ),
+                                  size: 32,
+                                  color: primaryDark,
+                                )
+                                : null,
                       ),
                       Positioned(
                         bottom: 0,
                         right: 0,
                         child: Container(
-                          width: 20,
-                          height: 20,
+                          width: 18,
+                          height: 18,
                           decoration: BoxDecoration(
                             color: Colors.green,
                             shape: BoxShape.circle,
@@ -142,48 +128,28 @@ class AdaptiveDrawer extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ).animate().scale(duration: 400.ms).shake(delay: 300.ms),
+                  const SizedBox(height: 12),
+                  Text(
+                    user?.displayName ?? 'Utilisateur',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                ).animate().scale(duration: 400.ms).shake(delay: 300.ms),
-
-                const SizedBox(height: 16),
-                Text(
-                  user?.displayName ?? 'Collaborateur OCP',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(height: 4),
+                  Text(
+                    user?.email ?? 'user@example.com',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 13,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ).animate().fadeIn(delay: 200.ms),
-                const SizedBox(height: 4),
-                Text(
-                  user?.email ?? 'user@ocpgroup.ma',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'Niveau 3 - Accès complet',
-                    style: TextStyle(color: Colors.white, fontSize: 10),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -191,95 +157,65 @@ class AdaptiveDrawer extends StatelessWidget {
     );
   }
 
-  Widget _buildNavigationSection() {
+  Widget _buildMainSection(BuildContext context) {
+    final navProvider = Provider.of<NavigationProvider>(context, listen: false);
+    final String currentRoute = navProvider.currentRoute;
+
     return _Section(
-      title: "NAVIGATION",
+      title: 'MENU PRINCIPAL',
       children: [
         _DrawerTile(
           icon: Iconsax.home,
           activeIcon: Iconsax.home_25,
-          title: "Tableau de bord",
-          route: "/home",
-          isActive: true,
-          notificationCount: 0,
+          title: 'Accueil',
+          route: '/home',
+          isActive: currentRoute == '/home',
         ),
         _DrawerTile(
-          icon: Iconsax.people,
-          activeIcon: Iconsax.people5,
-          title: "Mon réseau",
-          route: "/network",
-          notificationCount: 3,
+          icon: Iconsax.notification,
+          activeIcon: Iconsax.notification5,
+          title: 'Notifications',
+          route: '/notifications',
+          isActive: currentRoute == '/notifications',
+        ),
+        _DrawerTile(
+          icon: Iconsax.profile_2user,
+          activeIcon: Iconsax.profile_2user5,
+          title: 'Amis',
+          route: '/friends',
+          isActive: currentRoute == '/friends',
         ),
         _DrawerTile(
           icon: Iconsax.message,
           activeIcon: Iconsax.message5,
-          title: "Messagerie",
-          route: "/messages",
-          notificationCount: 5,
+          title: 'Chatrooms',
+          route: '/chatrooms',
+          isActive: currentRoute == '/chatrooms',
         ),
-        _DrawerTile(
-          icon: Iconsax.document,
-          activeIcon: Iconsax.document5,
-          title: "Documents partagés",
-          route: "/documents",
-        ),
-      ],
-    );
-  }
-
-  Widget _buildToolsSection() {
-    return _Section(
-      title: "OUTILS COLLABORATIFS",
-      children: [
         _DrawerTile(
           icon: Iconsax.calendar,
           activeIcon: Iconsax.calendar_2,
-          title: "Agenda d'équipe",
-          route: "/calendar",
-        ),
-        _DrawerTile(
-          icon: Iconsax.task,
-          activeIcon: Iconsax.task_square,
-          title: "Gestion de projets",
-          route: "/projects",
-        ),
-        _DrawerTile(
-          icon: Iconsax.chart,
-          activeIcon: Iconsax.chart_2,
-          title: "Tableaux de bord",
-          route: "/dashboards",
-        ),
-        _DrawerTile(
-          icon: Iconsax.video,
-          activeIcon: Iconsax.video_play,
-          title: "Réunions virtuelles",
-          route: "/meetings",
+          title: 'Agenda',
+          route: '/calendar',
+          isActive: currentRoute == '/calendar',
         ),
       ],
     );
   }
 
-  Widget _buildSupportSection() {
+  Widget _buildSecondarySection(BuildContext context) {
+    final navProvider = Provider.of<NavigationProvider>(context, listen: false);
+    final String currentRoute = navProvider.currentRoute;
+
     return _Section(
-      title: "SUPPORT & PARAMÈTRES",
+      title: 'PARAMÈTRES',
       children: [
         _DrawerTile(
           icon: Iconsax.setting,
           activeIcon: Iconsax.setting_2,
-          title: "Paramètres du compte",
-          route: "/settings",
-        ),
-        _DrawerTile(
-          icon: Iconsax.shield,
-          activeIcon: Iconsax.shield_tick,
-          title: "Sécurité",
-          route: "/security",
-        ),
-        _DrawerTile(
-          icon: Iconsax.info_circle,
-          activeIcon: Iconsax.info_circle5,
-          title: "Centre d'aide",
-          route: "/help",
+          title: 'Paramètres',
+          route: '/settings',
+          isActive: currentRoute == '/settings',
         ),
       ],
     );
@@ -294,65 +230,25 @@ class AdaptiveDrawer extends StatelessWidget {
           const SizedBox(height: 12),
           ElevatedButton.icon(
             icon: const Icon(Iconsax.logout, size: 18),
-            label: const Text("Déconnexion"),
+            label: const Text('Déconnexion'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.withOpacity(0.1),
               foregroundColor: Colors.red,
-              elevation: 0,
-              minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            onPressed: () => _showLogoutDialog(context),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              Navigator.popUntil(context, (route) => route.isFirst);
+              Navigator.pushReplacementNamed(context, '/login');
+            },
           ),
           const SizedBox(height: 8),
           Text(
-            "v2.4.1 • © OCP ${DateTime.now().year}",
+            'v1.0.0 • © ${DateTime.now().year}',
             style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
           ),
         ],
       ),
-    );
-  }
-
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Text("Déconnexion"),
-            content: const Text(
-              "Êtes-vous sûr de vouloir vous déconnecter de l'application ?",
-            ),
-            actions: [
-              TextButton(
-                child: const Text("Annuler"),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text("Déconnecter"),
-                onPressed: () async {
-                  await FirebaseAuth.instance.signOut();
-                  Navigator.popUntil(ctx, (route) => route.isFirst);
-                  Navigator.pushReplacementNamed(ctx, '/login');
-                },
-              ),
-            ],
-          ),
     );
   }
 }
@@ -360,30 +256,27 @@ class AdaptiveDrawer extends StatelessWidget {
 class _Section extends StatelessWidget {
   final String title;
   final List<Widget> children;
-
   const _Section({required this.title, required this.children});
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: AdaptiveDrawer.primaryDark.withOpacity(0.7),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
+        Text(
+          title,
+          style: TextStyle(
+            color: AdaptiveDrawer.primaryDark.withOpacity(0.7),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
           ),
         ),
         ...children,
       ],
-    );
-  }
+    ),
+  );
 }
 
 class _DrawerTile extends StatelessWidget {
@@ -405,62 +298,52 @@ class _DrawerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        dense: true,
-        leading: AnimatedContainer(
-          duration: 300.ms,
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color:
-                isActive
-                    ? AdaptiveDrawer.primaryColor.withOpacity(0.15)
-                    : Colors.grey.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(
+    final navProvider = Provider.of<NavigationProvider>(context, listen: false);
+
+    return ListTile(
+      leading: Stack(
+        children: [
+          Icon(
             isActive ? activeIcon : icon,
-            size: 20,
-            color:
-                isActive ? AdaptiveDrawer.primaryColor : Colors.grey.shade700,
+            color: isActive ? AdaptiveDrawer.primaryColor : Colors.black54,
+            size: 24,
           ),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-            color: isActive ? AdaptiveDrawer.primaryDark : Colors.grey.shade800,
-          ),
-        ),
-        trailing:
-            notificationCount != null && notificationCount! > 0
-                ? Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 20,
-                    minHeight: 20,
-                  ),
+          if (notificationCount != null && notificationCount! > 0)
+            Positioned(
+              right: 0,
+              top: 0,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                child: Center(
                   child: Text(
-                    notificationCount.toString(),
+                    '$notificationCount',
                     style: const TextStyle(color: Colors.white, fontSize: 10),
-                    textAlign: TextAlign.center,
                   ),
-                )
-                : null,
-        onTap: () {
-          Navigator.pop(context);
-          Navigator.pushNamed(context, route);
-        },
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      ).animate().fadeIn().slideX(begin: 0.1),
+                ),
+              ),
+            ),
+        ],
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isActive ? AdaptiveDrawer.primaryColor : Colors.black87,
+          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+          fontSize: 14,
+        ),
+      ),
+      minLeadingWidth: 30,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      onTap: () {
+        navProvider.navigateTo(route);
+        Navigator.pop(context);
+        Navigator.pushReplacementNamed(context, route);
+      },
     );
   }
 }

@@ -1,6 +1,8 @@
+import 'package:app_stage/login.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'login.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -25,6 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _selectedSex = 'Homme';
   String _selectedDepartment = 'Informatique';
 
+  // Couleurs et styles
   static const _backColor = Color(0xFFF4F6FC);
   static const _mainGreenColor = Color(0xFF2F9D4E);
   static const _greenDarkColor = Color(0xFF1E8449);
@@ -45,37 +48,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  bool _validatePassword(String password) {
+    return password.length >= 8 &&
+        password.contains(RegExp(r'[A-Z]')) &&
+        password.contains(RegExp(r'[a-z]'));
+  }
+
+  String? _passwordValidator(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Veuillez entrer un mot de passe';
+    }
+    if (value.length < 8) {
+      return '8 caractères minimum';
+    }
+    if (!value.contains(RegExp(r'[A-Z]'))) {
+      return 'Doit contenir une majuscule';
+    }
+    if (!value.contains(RegExp(r'[a-z]'))) {
+      return 'Doit contenir une minuscule';
+    }
+    return null;
+  }
+
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _errorMessage = null);
-
-    final password = _passwordController.text.trim();
-    final confirmPassword = _confirmPasswordController.text.trim();
-
-    if (password.isEmpty || confirmPassword.isEmpty) {
+    if (!_validatePassword(_passwordController.text)) {
       setState(
-        () =>
-            _errorMessage = 'Veuillez remplir les deux champs de mot de passe',
+        () => _errorMessage = 'Le mot de passe ne respecte pas les critères',
       );
       return;
     }
 
-    if (password != confirmPassword) {
-      setState(() => _errorMessage = 'Les mots de passe ne correspondent pas');
-      return;
-    }
-
-    setState(() => _isLoading = true);
+    setState(() {
+      _errorMessage = null;
+      _isLoading = true;
+    });
 
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: password,
-      );
-      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userCredential.user!.uid)
+          .set({
+            'uid': userCredential.user!.uid,
+            'email': _emailController.text.trim(),
+            'fullName': _fullNameController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'birthDate':
+                _selectedDate != null
+                    ? DateFormat('yyyy-MM-dd').format(_selectedDate!)
+                    : null,
+            'gender': _selectedSex,
+            'department': _selectedDepartment,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'role': 'employee',
+            'isActive': true,
+            'emailVerified': false,
+          });
+
+      await userCredential.user!.sendEmailVerification();
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
     } on FirebaseAuthException catch (e) {
       setState(() => _errorMessage = _getErrorMessage(e.code));
+    } catch (e) {
+      setState(() => _errorMessage = 'Erreur: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -86,11 +132,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       case 'email-already-in-use':
         return 'Cet email est déjà utilisé';
       case 'weak-password':
-        return 'Le mot de passe doit contenir au moins 6 caractères';
+        return 'Le mot de passe doit contenir au moins 8 caractères';
       case 'invalid-email':
-        return 'Veuillez entrer un email valide';
+        return 'Email invalide (ex: nom@ocp.com)';
       default:
-        return 'Erreur lors de l\'inscription';
+        return 'Erreur technique (Code: $code)';
     }
   }
 
@@ -122,13 +168,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  void _navigateToLogin() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -139,7 +178,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: Row(
         children: [
           if (isLargeScreen) _buildSidePanel(),
-
           Expanded(
             flex: isLargeScreen ? 2 : 1,
             child: SingleChildScrollView(
@@ -151,19 +189,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!isLargeScreen) _buildMobileHeader(),
-
                   _buildTitleSection(),
                   const SizedBox(height: _defaultPadding * 2),
-
                   Form(
                     key: _formKey,
                     child: Column(
                       children: [
                         _buildFullNameField(),
                         const SizedBox(height: _defaultPadding),
-                        _buildEmailField(),
+                        _buildEmailAndPhoneRow(),
                         const SizedBox(height: _defaultPadding),
-                        _buildPasswordAndPhoneRow(),
+                        _buildPasswordFields(),
                         if (_errorMessage != null) _buildErrorMessage(),
                         const SizedBox(height: _defaultPadding),
                         _buildDateAndGenderRow(),
@@ -239,7 +275,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
         const SizedBox(height: _defaultPadding),
-        Divider(color: _mainGreenColor.withOpacity(0.2), thickness: 1),
+        Divider(color: _mainGreenColor.withOpacity(0.2)),
         const SizedBox(height: _defaultPadding),
       ],
     );
@@ -289,58 +325,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildEmailField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildInputLabel('Email professionnel'),
-        _buildInputField(
-          controller: _emailController,
-          hintText: 'exemple@ocpgroup.ma',
-          icon: Icons.email_outlined,
-          keyboardType: TextInputType.emailAddress,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Veuillez entrer votre email';
-            }
-            if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-              return 'Veuillez entrer un email valide';
-            }
-            return null;
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPasswordAndPhoneRow() {
+  Widget _buildEmailAndPhoneRow() {
     return Row(
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInputLabel('Mot de passe'),
+              _buildInputLabel('Email professionnel'),
               _buildInputField(
-                controller: _passwordController,
-                hintText: 'Minimum 8 caractères',
-                icon: Icons.lock_outline,
-                obscureText: _obscurePassword,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                    color: _textColor.withOpacity(0.5),
-                  ),
-                  onPressed:
-                      () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                ),
+                controller: _emailController,
+                hintText: 'exemple@ocpgroup.ma',
+                icon: Icons.email_outlined,
+                keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer un mot de passe';
+                    return 'Veuillez entrer votre email';
                   }
-                  if (value.length < 8) {
-                    return 'Le mot de passe doit contenir au moins 8 caractères';
+                  if (!RegExp(
+                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                  ).hasMatch(value)) {
+                    return 'Veuillez entrer un email valide';
                   }
                   return null;
                 },
@@ -353,30 +358,148 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInputLabel('Confirmer mot de passe'),
+              _buildInputLabel('Téléphone'),
               _buildInputField(
-                controller: _confirmPasswordController,
-                hintText: 'Retapez votre mot de passe',
-                icon: Icons.lock_outline,
-                obscureText: _obscureConfirmPassword,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscureConfirmPassword
-                        ? Icons.visibility_off
-                        : Icons.visibility,
-                    color: _textColor.withOpacity(0.5),
-                  ),
-                  onPressed:
-                      () => setState(
-                        () =>
-                            _obscureConfirmPassword = !_obscureConfirmPassword,
-                      ),
-                ),
+                controller: _phoneController,
+                hintText: 'ex: +212612345678',
+                icon: Icons.phone_outlined,
+                keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Veuillez entrer votre numéro';
+                  }
+                  if (!RegExp(r'^\+?[0-9]{8,15}$').hasMatch(value)) {
+                    return 'Numéro invalide';
+                  }
+                  return null;
+                },
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPasswordFields() {
+    final password = _passwordController.text;
+    final hasMinLength = password.length >= 8;
+    final hasUpperCase = password.contains(RegExp(r'[A-Z]'));
+    final hasLowerCase = password.contains(RegExp(r'[a-z]'));
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInputLabel('Mot de passe'),
+                  _buildInputField(
+                    controller: _passwordController,
+                    hintText: 'Minimum 8 caractères',
+                    icon: Icons.lock_outline,
+                    obscureText: _obscurePassword,
+                    validator: _passwordValidator,
+                    onChanged: (value) => setState(() {}),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: _textColor.withOpacity(0.5),
+                      ),
+                      onPressed:
+                          () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: _defaultPadding),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInputLabel('Confirmer mot de passe'),
+                  _buildInputField(
+                    controller: _confirmPasswordController,
+                    hintText: 'Retapez votre mot de passe',
+                    icon: Icons.lock_outline,
+                    obscureText: _obscureConfirmPassword,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirmPassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: _textColor.withOpacity(0.5),
+                      ),
+                      onPressed:
+                          () => setState(
+                            () =>
+                                _obscureConfirmPassword =
+                                    !_obscureConfirmPassword,
+                          ),
+                    ),
+                    validator: (value) {
+                      if (value != _passwordController.text) {
+                        return 'Les mots de passe ne correspondent pas';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (_passwordController.text.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Critères du mot de passe:',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _textColor.withOpacity(0.6),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _buildPasswordCriterion('8 caractères minimum', hasMinLength),
+                _buildPasswordCriterion('Au moins une majuscule', hasUpperCase),
+                _buildPasswordCriterion('Au moins une minuscule', hasLowerCase),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordCriterion(String text, bool isValid) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.circle,
+            size: 16,
+            color: isValid ? _mainGreenColor : _textColor.withOpacity(0.3),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: isValid ? _textColor : _textColor.withOpacity(0.5),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -409,15 +532,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(width: 12),
                       Text(
-                        _selectedDate == null
-                            ? 'JJ/MM/AAAA'
-                            : '${_selectedDate!.day.toString().padLeft(2, '0')}/${_selectedDate!.month.toString().padLeft(2, '0')}/${_selectedDate!.year}',
-                        style: TextStyle(
-                          color:
-                              _selectedDate == null
-                                  ? _textColor.withOpacity(0.5)
-                                  : _textColor,
-                        ),
+                        _selectedDate != null
+                            ? DateFormat('dd/MM/yyyy').format(_selectedDate!)
+                            : 'Sélectionner une date',
                       ),
                     ],
                   ),
@@ -557,7 +674,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildLoginLink() {
     return Center(
       child: TextButton(
-        onPressed: _navigateToLogin,
+        onPressed: () {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+        },
         child: Text(
           'Déjà un compte ? Se connecter',
           style: TextStyle(
@@ -592,12 +714,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     TextInputType? keyboardType,
     Widget? suffixIcon,
     String? Function(String?)? validator,
+    void Function(String)? onChanged,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscureText,
       keyboardType: keyboardType,
       validator: validator,
+      onChanged: onChanged,
       style: TextStyle(color: _textColor, fontSize: 14),
       decoration: InputDecoration(
         hintText: hintText,

@@ -3,9 +3,16 @@ import 'package:firebase_core/firebase_core.dart';
 import 'login.dart';
 import 'register.dart';
 import 'home.dart';
+import 'package:provider/provider.dart';
+// Imports ajoutés pour tes écrans liés au drawer
+import 'friends.dart';
+import 'chatrooms.dart';
+import 'calendar.dart';
+import 'settings.dart';
+import 'notifications.dart';
+import 'adaptive_drawer.dart';
 
 void main() async {
-  // Initialisation synchrone nécessaire pour Firebase
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
@@ -20,10 +27,15 @@ void main() async {
       ),
     );
   } catch (e) {
-    debugPrint("Erreur d'initialisation Firebase: $e");
+    debugPrint("Erreur Firebase: $e");
   }
 
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => NavigationProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -37,27 +49,21 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.green,
         visualDensity: VisualDensity.adaptivePlatformDensity,
-        colorScheme: ColorScheme.fromSwatch(
-          primarySwatch: Colors.green,
-        ).copyWith(
-          secondary: const Color(0xFF2E7D32), // Couleur OCP
-        ),
       ),
       initialRoute: '/login',
       routes: {
-        '/login': (context) => const LoginScreen(),
-        '/register': (context) => const RegisterScreen(),
-        '/home':
-            (context) => HomeScreen(
-              key: UniqueKey(),
-            ), // Clé unique pour éviter les conflits
+        '/login': (ctx) => const LoginScreen(),
+        '/register': (ctx) => const RegisterScreen(),
+        '/home': (ctx) => const HomeScreen(),
+        '/friends': (ctx) => const FriendsScreen(),
+        '/chatrooms': (ctx) => const ChatroomsScreen(),
+        '/calendar': (ctx) => const CalendarScreen(),
+        '/settings': (ctx) => const SettingsScreen(),
+        '/notifications': (ctx) => const NotificationsScreen(),
       },
       onUnknownRoute:
-          (settings) => MaterialPageRoute(
-            builder:
-                (context) =>
-                    const LoginScreen(), // Retour au login si route inconnue
-          ),
+          (settings) =>
+              MaterialPageRoute(builder: (ctx) => const LoginScreen()),
     );
   }
 }

@@ -3,8 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
-import 'adaptive_drawer.dart'; // Import correct du drawer adaptatif
-import 'profil.dart'; // Import de la page de profil
+import 'adaptive_drawer.dart';
+import 'profil.dart';
+import 'custom_app_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,18 +21,15 @@ class _HomeScreenState extends State<HomeScreen>
   final User? _user = FirebaseAuth.instance.currentUser;
   final ScrollController _scrollController = ScrollController();
   final double _maxCardWidth = 600;
-  final double _drawerWidth = 280;
-  bool _isDrawerOpen = false;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-
     _fadeAnimation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.easeIn,
@@ -48,14 +46,10 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  void _toggleDrawer() {
-    setState(() => _isDrawerOpen = !_isDrawerOpen);
-  }
-
   void _navigateToProfile() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const ProfileScreen()),
+      MaterialPageRoute(builder: (context) => ProfileScreen(user: _user)),
     );
   }
 
@@ -66,74 +60,14 @@ class _HomeScreenState extends State<HomeScreen>
     final isDesktop = screenWidth >= 1024;
 
     return Scaffold(
-      drawer:
-          isMobile
-              ? const AdaptiveDrawer()
-              : null, // Utilisation du drawer adaptatif
-      appBar: AppBar(
-        title: const Text('Flux Collaboratif'),
-        leading:
-            isDesktop
-                ? IconButton(
-                  icon: const Icon(Iconsax.menu_1),
-                  onPressed: _toggleDrawer,
-                )
-                : null,
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: Badge.count(
-              count: 3,
-              child: const Icon(Iconsax.notification),
-            ),
-            onPressed: () {},
-          ),
-          if (!isMobile) ...[
-            IconButton(
-              icon: const Icon(Iconsax.search_normal),
-              onPressed: () {},
-            ),
-            const SizedBox(width: 8),
-            _buildUserProfileButton(isMobile),
-            const SizedBox(width: 12),
-          ],
-        ],
-        elevation: 0,
-        scrolledUnderElevation: 1,
+      key: _scaffoldKey,
+      drawer: const AdaptiveDrawer(),
+      appBar: CustomAppBar(
+        title: 'Accueil',
+        scaffoldKey: _scaffoldKey,
+        user: _user,
       ),
-      body: Stack(
-        children: [
-          _buildMainContent(isMobile, isDesktop, screenWidth),
-
-          if (isDesktop && _isDrawerOpen) ...[
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: SizedBox(
-                width: _drawerWidth,
-                child: Card(
-                  elevation: 8,
-                  margin: EdgeInsets.zero,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.only(
-                      topRight: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
-                    ),
-                  ),
-                  child: const AdaptiveDrawer(), // Drawer pour desktop
-                ),
-              ),
-            ),
-
-            if (_isDrawerOpen)
-              GestureDetector(
-                onTap: _toggleDrawer,
-                child: Container(color: Colors.black.withOpacity(0.3)),
-              ),
-          ],
-        ],
-      ),
+      body: _buildMainContent(isMobile, isDesktop, screenWidth),
       floatingActionButton: FloatingActionButton(
         onPressed: () {},
         child: const Icon(Iconsax.add),
