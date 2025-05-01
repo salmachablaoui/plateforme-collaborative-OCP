@@ -1,10 +1,11 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import './firebase/firebase_config.dart';
 import 'login.dart';
 import 'register.dart';
 import 'home.dart';
-import 'package:provider/provider.dart';
-// Imports ajoutés pour tes écrans liés au drawer
+// Imports pour les écrans du drawer
 import 'friends.dart';
 import 'chatrooms.dart';
 import 'calendar.dart';
@@ -15,20 +16,7 @@ import 'adaptive_drawer.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyAp231bOnYw8WQLrgJm_aBqXTFclmUfiXk",
-        appId: "1:1033394801561:android:3a810c70940b2819732108",
-        messagingSenderId: "1033394801561",
-        projectId: "app-stage-2f629",
-        authDomain: "app-stage-21629.firebaseapp.com",
-        storageBucket: "app-stage-21629.appspot.com",
-      ),
-    );
-  } catch (e) {
-    debugPrint("Erreur Firebase: $e");
-  }
+  await FirebaseConfig.initialize(); // Initialisation Firebase depuis le fichier externe
 
   runApp(
     ChangeNotifierProvider(
