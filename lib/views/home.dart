@@ -3,9 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
-import 'adaptive_drawer.dart';
+import 'shared/adaptive_drawer.dart';
 import 'profil.dart';
-import 'custom_app_bar.dart';
+import 'shared/custom_app_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:iconsax/iconsax.dart';
-import 'adaptive_drawer.dart';
-import 'custom_app_bar.dart';
+import 'package:app_stage/views/shared/adaptive_drawer.dart';
+import 'shared/custom_app_bar.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);

@@ -2,16 +2,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import './firebase/firebase_config.dart';
-import 'login.dart';
-import 'register.dart';
-import 'home.dart';
+import 'views/auth/login.dart';
+import 'views/auth/register.dart';
+import 'views/home.dart';
 // Imports pour les écrans du drawer
-import 'friends.dart';
-import 'chatrooms.dart';
-import 'calendar.dart';
-import 'settings.dart';
-import 'notifications.dart';
-import 'adaptive_drawer.dart';
+import 'views/friends.dart';
+import 'views/chatrooms.dart';
+import 'views/calendar.dart';
+import 'views/settings.dart';
+import 'views/notifications.dart';
+import 'views/shared/adaptive_drawer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

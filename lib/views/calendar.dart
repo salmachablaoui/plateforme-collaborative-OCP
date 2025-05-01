@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'adaptive_drawer.dart';
-import 'custom_app_bar.dart';
+import 'package:app_stage/views/shared/adaptive_drawer.dart';
+import 'package:app_stage/views/shared/custom_app_bar.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({Key? key}) : super(key: key);
