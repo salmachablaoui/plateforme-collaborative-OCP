@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../services/firestore_service.dart'; // ajuste le chemin si besoin
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
@@ -20,14 +21,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late String _displayName;
   late String _position;
 
+  final _firestore = FirestoreService();
+
   @override
   void initState() {
     super.initState();
     _displayName = widget.user?.displayName ?? 'Nom non défini';
-    _position =
-        widget.user?.email?.contains('@company.com') ?? false
-            ? 'Employé'
-            : 'Position non définie';
+    _position = 'Chargement...';
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    if (widget.user == null) return;
+
+    final doc = await _firestore.getDocument(
+      collection: 'users',
+      docId: widget.user!.uid,
+    );
+
+    setState(() {
+      _displayName = doc?['name'] ?? _displayName;
+      _position = doc?['position'] ?? 'Position non définie';
+    });
   }
 
   @override
@@ -101,17 +116,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
       key: _formKey,
       child: Column(
         children: [
-          // Ajoutez vos champs de formulaire ici
+          TextFormField(
+            initialValue: _displayName,
+            enabled: _isEditing,
+            decoration: const InputDecoration(labelText: 'Nom complet'),
+            validator:
+                (value) =>
+                    value == null || value.isEmpty
+                        ? 'Veuillez entrer un nom'
+                        : null,
+            onSaved: (value) => _displayName = value!,
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            initialValue: _position,
+            enabled: _isEditing,
+            decoration: const InputDecoration(labelText: 'Poste'),
+            validator:
+                (value) =>
+                    value == null || value.isEmpty
+                        ? 'Veuillez entrer un poste'
+                        : null,
+            onSaved: (value) => _position = value!,
+          ),
         ],
       ),
     );
   }
 
-  void _toggleEditMode() {
+  void _toggleEditMode() async {
     if (_isEditing && _formKey.currentState!.validate()) {
       _formKey.currentState!.save();
-      // Sauvegarder les modifications
+
+      await _firestore.updateDocument(
+        collection: 'users',
+        docId: widget.user!.uid,
+        data: {'name': _displayName, 'position': _position},
+      );
     }
+
     setState(() => _isEditing = !_isEditing);
   }
 }
@@ -135,7 +178,8 @@ class _ProfileAvatar extends StatelessWidget {
         child: CachedNetworkImage(
           imageUrl: imageUrl ?? 'https://via.placeholder.com/150',
           fit: BoxFit.cover,
-          placeholder: (_, __) => Center(child: CircularProgressIndicator()),
+          placeholder:
+              (_, __) => const Center(child: CircularProgressIndicator()),
           errorWidget:
               (_, __, ___) => Icon(
                 Iconsax.user,

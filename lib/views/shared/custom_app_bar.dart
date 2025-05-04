@@ -83,7 +83,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           child: Row(
             children: [
               Hero(
-                tag: 'user-avatar-${user?.uid ?? 'default'}',
+                tag: 'appbar-title-${title.hashCode}', // Hash du titre
                 child: CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.blue.shade100,

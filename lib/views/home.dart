@@ -115,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Row(
             children: [
               Hero(
-                tag: 'user-avatar-${_user?.uid}',
+                tag: 'home-banner-${UniqueKey()}', // Unique
                 child: CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.blue.shade100,
