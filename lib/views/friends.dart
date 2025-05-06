@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:app_stage/views/shared/adaptive_drawer.dart';
 import 'package:app_stage/views/shared/custom_app_bar.dart';
+import 'package:app_stage/views/profil.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({Key? key}) : super(key: key);
@@ -11,46 +13,30 @@ class FriendsScreen extends StatefulWidget {
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
 
-class _FriendsScreenState extends State<FriendsScreen> {
+class _FriendsScreenState extends State<FriendsScreen>
+    with SingleTickerProviderStateMixin {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final User? _user = FirebaseAuth.instance.currentUser;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  final List<Friend> _friends = [
-    Friend(
-      name: 'Alice Durand',
-      status: 'En ligne',
-      avatar: 'A',
-      isOnline: true,
-    ),
-    Friend(name: 'Benoît Lefèvre', status: 'Hier, 18:30', avatar: 'B'),
-    Friend(
-      name: 'Claire Morel',
-      status: 'En ligne',
-      avatar: 'C',
-      isOnline: true,
-    ),
-    Friend(name: 'David Petit', status: 'Il y a 2 jours', avatar: 'D'),
-    Friend(
-      name: 'Émilie Bernard',
-      status: 'En ligne',
-      avatar: 'E',
-      isOnline: true,
-    ),
-    Friend(name: 'François Dubois', status: 'La semaine dernière', avatar: 'F'),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filteredFriends =
-        _friends
-            .where(
-              (friend) => friend.name.toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ),
-            )
-            .toList();
-
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AdaptiveDrawer(),
@@ -58,128 +44,716 @@ class _FriendsScreenState extends State<FriendsScreen> {
         title: 'Amis',
         scaffoldKey: _scaffoldKey,
         user: _user,
-      ), // <-- Parenthèse fermée ici
+      ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Rechercher des amis...',
-                prefixIcon: const Icon(Iconsax.search_normal),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.grey.withOpacity(0.1),
-              ),
-              onChanged: (value) => setState(() => _searchQuery = value),
-            ),
-          ),
+          _buildSearchBar(),
+          _buildMainTabBar(),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: filteredFriends.length,
-              itemBuilder:
-                  (context, index) => _FriendCard(
-                    friend: filteredFriends[index],
-                    onTap:
-                        () => _navigateToFriendProfile(
-                          context,
-                          filteredFriends[index],
-                        ),
-                  ),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildFriendsList(),
+                _buildSuggestionsList(),
+                _buildFriendRequestsTabView(),
+              ],
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddFriendDialog(context),
-        backgroundColor: AdaptiveDrawer.primaryColor,
-        child: const Icon(Iconsax.user_add, color: Colors.white),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: 'Rechercher...',
+          prefixIcon: const Icon(Iconsax.search_normal),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.grey.withOpacity(0.1),
+          suffixIcon:
+              _searchQuery.isNotEmpty
+                  ? IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      setState(() {
+                        _searchQuery = '';
+                        _searchController.clear();
+                      });
+                    },
+                  )
+                  : null,
+        ),
+        onChanged: (value) => setState(() => _searchQuery = value),
       ),
     );
   }
 
-  void _navigateToFriendProfile(BuildContext context, Friend friend) {
-    Navigator.pushNamed(context, '/friend-profile', arguments: friend);
+  Widget _buildMainTabBar() {
+    return TabBar(
+      controller: _tabController,
+      labelColor: Theme.of(context).primaryColor,
+      unselectedLabelColor: Colors.grey,
+      indicatorColor: Theme.of(context).primaryColor,
+      tabs: const [
+        Tab(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Iconsax.people),
+              SizedBox(width: 6),
+              Text('Mes amis'),
+            ],
+          ),
+        ),
+        Tab(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Iconsax.user_search),
+              SizedBox(width: 6),
+              Text('Suggestions'),
+            ],
+          ),
+        ),
+        Tab(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Iconsax.user_add),
+              SizedBox(width: 6),
+              Text('Demandes'),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
-  void _showAddFriendDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Ajouter un ami'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  decoration: InputDecoration(
-                    labelText: 'Email ou pseudo',
-                    prefixIcon: const Icon(Iconsax.user),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Demande d\'ami envoyée')),
+  Widget _buildFriendsList() {
+    return RefreshIndicator(
+      onRefresh: _refreshFriendsList,
+      child: StreamBuilder<QuerySnapshot>(
+        stream:
+            _firestore
+                .collection('users')
+                .doc(_user?.uid)
+                .collection('friends')
+                .orderBy('addedAt', descending: true)
+                .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return _buildErrorWidget(snapshot.error.toString());
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final friends = snapshot.data?.docs ?? [];
+
+          if (friends.isEmpty) {
+            return _buildEmptyState(
+              icon: Icons.group,
+              title: 'Aucun ami pour le moment',
+              subtitle: 'Ajoutez des amis via les suggestions',
+            );
+          }
+
+          return ListView.separated(
+            itemCount: friends.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final friendId = friends[index].id;
+              return FutureBuilder<DocumentSnapshot>(
+                future: _firestore.collection('users').doc(friendId).get(),
+                builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting) {
+                    return const ListTile(
+                      leading: CircleAvatar(child: CircularProgressIndicator()),
+                      title: Text('Chargement...'),
                     );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AdaptiveDrawer.primaryColor,
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text('Envoyer la demande'),
-                ),
-              ],
+                  }
+
+                  if (!userSnapshot.hasData ||
+                      userSnapshot.data?.data() == null) {
+                    return ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.error)),
+                      title: const Text('Utilisateur introuvable'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => _removeFriend(context, friendId),
+                      ),
+                    );
+                  }
+
+                  final userData =
+                      userSnapshot.data!.data() as Map<String, dynamic>;
+                  return UserCard(
+                    userId: friendId,
+                    name: userData['fullName'] ?? 'Utilisateur inconnu',
+                    department: userData['department'] ?? '',
+                    isOnline: userData['isOnline'] ?? false,
+                    showRemoveButton: true,
+                    onTap: () => _navigateToUserProfile(friendId),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSuggestionsList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream:
+          _searchQuery.isEmpty
+              ? _firestore.collection('users').snapshots()
+              : _firestore
+                  .collection('users')
+                  .where('fullName', isGreaterThanOrEqualTo: _searchQuery)
+                  .where('fullName', isLessThan: '$_searchQuery\uf8ff')
+                  .snapshots(),
+      builder: (context, allUsersSnapshot) {
+        if (allUsersSnapshot.hasError) {
+          return _buildErrorWidget(allUsersSnapshot.error.toString());
+        }
+
+        if (allUsersSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        return StreamBuilder<QuerySnapshot>(
+          stream:
+              _firestore
+                  .collection('users')
+                  .doc(_user?.uid)
+                  .collection('friends')
+                  .snapshots(),
+          builder: (context, friendsSnapshot) {
+            if (friendsSnapshot.hasError) {
+              return _buildErrorWidget(friendsSnapshot.error.toString());
+            }
+
+            final allUsers = allUsersSnapshot.data?.docs ?? [];
+            final friends = friendsSnapshot.data?.docs ?? [];
+
+            // Filtrer les utilisateurs
+            final suggestions =
+                allUsers.where((user) {
+                  // Exclure l'utilisateur courant
+                  if (user.id == _user?.uid) return false;
+
+                  // Exclure les amis existants
+                  final isFriend = friends.any(
+                    (friend) => friend.id == user.id,
+                  );
+                  return !isFriend;
+                }).toList();
+
+            // Filtre supplémentaire pour la recherche
+            final filteredSuggestions =
+                _searchQuery.isEmpty
+                    ? suggestions
+                    : suggestions.where((user) {
+                      final userData = user.data() as Map<String, dynamic>;
+                      final name =
+                          userData['fullName']?.toString().toLowerCase() ?? '';
+                      return name.contains(_searchQuery.toLowerCase());
+                    }).toList();
+
+            if (filteredSuggestions.isEmpty) {
+              return _buildEmptyState(
+                icon: Icons.search_off,
+                title:
+                    _searchQuery.isEmpty
+                        ? 'Aucune suggestion disponible'
+                        : 'Aucun résultat pour "$_searchQuery"',
+              );
+            }
+
+            return ListView.builder(
+              itemCount: filteredSuggestions.length,
+              itemBuilder: (context, index) {
+                final user = filteredSuggestions[index];
+                final userData = user.data() as Map<String, dynamic>;
+                return UserCard(
+                  userId: user.id,
+                  name: userData['fullName'] ?? 'Utilisateur inconnu',
+                  department: userData['department'] ?? '',
+                  isOnline: userData['isOnline'] ?? false,
+                  showAddButton: true,
+                  onTap: () => _navigateToUserProfile(user.id),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFriendRequestsTabView() {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Material(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            child: TabBar(
+              tabs: const [Tab(text: 'Reçues'), Tab(text: 'Envoyées')],
+              labelColor: Theme.of(context).primaryColor,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Theme.of(context).primaryColor,
             ),
           ),
+          Expanded(
+            child: TabBarView(
+              children: [_buildReceivedRequests(), _buildSentRequests()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReceivedRequests() {
+    return StreamBuilder<QuerySnapshot>(
+      stream:
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('received_requests')
+              .orderBy('timestamp', descending: true)
+              .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildErrorWidget(snapshot.error.toString());
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final requests = snapshot.data?.docs ?? [];
+
+        if (requests.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.mark_email_unread,
+            title: 'Aucune demande reçue',
+            subtitle: 'Les demandes que vous recevez apparaîtront ici',
+          );
+        }
+
+        return ListView.builder(
+          itemCount: requests.length,
+          itemBuilder: (context, index) {
+            final request = requests[index];
+            return FutureBuilder<DocumentSnapshot>(
+              future: _firestore.collection('users').doc(request.id).get(),
+              builder: (context, userSnapshot) {
+                if (!userSnapshot.hasData) {
+                  return const ListTile(title: Text('Chargement...'));
+                }
+
+                final userData =
+                    userSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+                return UserCard(
+                  userId: request.id,
+                  name: userData['fullName'] ?? 'Utilisateur inconnu',
+                  department: userData['department'] ?? '',
+                  isOnline: userData['isOnline'] ?? false,
+                  showAcceptRejectButtons: true,
+                  onTap: () => _navigateToUserProfile(request.id),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSentRequests() {
+    return StreamBuilder<QuerySnapshot>(
+      stream:
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('sent_requests')
+              .orderBy('timestamp', descending: true)
+              .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildErrorWidget(snapshot.error.toString());
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final requests = snapshot.data?.docs ?? [];
+
+        if (requests.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.send,
+            title: 'Aucune demande envoyée',
+            subtitle: 'Les demandes que vous envoyez apparaîtront ici',
+          );
+        }
+
+        return ListView.builder(
+          itemCount: requests.length,
+          itemBuilder: (context, index) {
+            final request = requests[index];
+            return FutureBuilder<DocumentSnapshot>(
+              future: _firestore.collection('users').doc(request.id).get(),
+              builder: (context, userSnapshot) {
+                if (!userSnapshot.hasData) {
+                  return const ListTile(title: Text('Chargement...'));
+                }
+
+                final userData =
+                    userSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+                return UserCard(
+                  userId: request.id,
+                  name: userData['fullName'] ?? 'Utilisateur inconnu',
+                  department: userData['department'] ?? '',
+                  isOnline: userData['isOnline'] ?? false,
+                  showCancelButton: true,
+                  onTap: () => _navigateToUserProfile(request.id),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildErrorWidget(String error) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 48),
+          const SizedBox(height: 16),
+          Text(
+            'Erreur de chargement',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          Text(error, textAlign: TextAlign.center),
+          TextButton(
+            onPressed: () => setState(() {}),
+            child: const Text('Réessayer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+  }) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          if (subtitle != null) ...[
+            const SizedBox(height: 8),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshFriendsList() async {
+    setState(() {});
+  }
+
+  Future<void> _sendFriendRequest(
+    BuildContext context,
+    String recipientId,
+  ) async {
+    try {
+      // Vérifier si déjà ami
+      final friendDoc =
+          await _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('friends')
+              .doc(recipientId)
+              .get();
+
+      if (friendDoc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cet utilisateur est déjà votre ami')),
+        );
+        return;
+      }
+
+      // Vérifier si demande déjà envoyée
+      final existingRequest =
+          await _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('sent_requests')
+              .doc(recipientId)
+              .get();
+
+      if (existingRequest.exists) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Demande déjà envoyée')));
+        return;
+      }
+
+      // Envoyer la demande avec une transaction
+      await _firestore.runTransaction((transaction) async {
+        transaction.set(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('sent_requests')
+              .doc(recipientId),
+          {'timestamp': FieldValue.serverTimestamp()},
+        );
+
+        transaction.set(
+          _firestore
+              .collection('users')
+              .doc(recipientId)
+              .collection('received_requests')
+              .doc(_user?.uid),
+          {'timestamp': FieldValue.serverTimestamp()},
+        );
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Demande d\'ami envoyée')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+    }
+  }
+
+  Future<void> _removeFriend(BuildContext context, String friendId) async {
+    try {
+      // Utiliser une transaction pour supprimer des deux côtés
+      await _firestore.runTransaction((transaction) async {
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('friends')
+              .doc(friendId),
+        );
+
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(friendId)
+              .collection('friends')
+              .doc(_user?.uid),
+        );
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ami supprimé')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+    }
+  }
+
+  Future<void> _acceptFriendRequest(
+    BuildContext context,
+    String senderId,
+  ) async {
+    final timestamp = FieldValue.serverTimestamp();
+    try {
+      // Utiliser une transaction pour garantir l'intégrité des données
+      await _firestore.runTransaction((transaction) async {
+        // 1. Supprimer la demande
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('received_requests')
+              .doc(senderId),
+        );
+
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(senderId)
+              .collection('sent_requests')
+              .doc(_user?.uid),
+        );
+
+        // 2. Ajouter comme amis des deux côtés
+        transaction.set(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('friends')
+              .doc(senderId),
+          {'addedAt': timestamp},
+        );
+
+        transaction.set(
+          _firestore
+              .collection('users')
+              .doc(senderId)
+              .collection('friends')
+              .doc(_user?.uid),
+          {'addedAt': timestamp},
+        );
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Demande acceptée - Ami ajouté')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+    }
+  }
+
+  Future<void> _rejectFriendRequest(
+    BuildContext context,
+    String senderId,
+  ) async {
+    try {
+      // Utiliser une transaction pour supprimer des deux côtés
+      await _firestore.runTransaction((transaction) async {
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('received_requests')
+              .doc(senderId),
+        );
+
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(senderId)
+              .collection('sent_requests')
+              .doc(_user?.uid),
+        );
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Demande rejetée')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+    }
+  }
+
+  Future<void> _cancelFriendRequest(
+    BuildContext context,
+    String recipientId,
+  ) async {
+    try {
+      // Utiliser une transaction pour supprimer des deux côtés
+      await _firestore.runTransaction((transaction) async {
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(_user?.uid)
+              .collection('sent_requests')
+              .doc(recipientId),
+        );
+
+        transaction.delete(
+          _firestore
+              .collection('users')
+              .doc(recipientId)
+              .collection('received_requests')
+              .doc(_user?.uid),
+        );
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Demande annulée')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+    }
+  }
+
+  void _navigateToUserProfile(String userId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ProfileScreen()),
     );
   }
 }
 
-class Friend {
+class UserCard extends StatelessWidget {
+  final String userId;
   final String name;
-  final String status;
-  final String avatar;
+  final String department;
   final bool isOnline;
+  final bool showAddButton;
+  final bool showRemoveButton;
+  final bool showAcceptRejectButtons;
+  final bool showCancelButton;
+  final VoidCallback? onTap;
 
-  Friend({
+  const UserCard({
+    required this.userId,
     required this.name,
-    required this.status,
-    required this.avatar,
-    this.isOnline = false,
+    required this.department,
+    required this.isOnline,
+    this.showAddButton = false,
+    this.showRemoveButton = false,
+    this.showAcceptRejectButtons = false,
+    this.showCancelButton = false,
+    this.onTap,
   });
-}
-
-class _FriendCard extends StatelessWidget {
-  final Friend friend;
-  final VoidCallback onTap;
-
-  const _FriendCard({required this.friend, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color =
-        Colors.primaries[friend.name.length % Colors.primaries.length];
+    final color = Colors.primaries[name.length % Colors.primaries.length];
+    final initials =
+        name.isNotEmpty
+            ? name
+                .split(' ')
+                .map((e) => e.isNotEmpty ? e[0] : '')
+                .take(2)
+                .join()
+            : '?';
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 0,
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -188,29 +762,27 @@ class _FriendCard extends StatelessWidget {
               Stack(
                 children: [
                   CircleAvatar(
-                    radius: 24,
                     backgroundColor: color.withOpacity(0.2),
                     child: Text(
-                      friend.avatar,
+                      initials,
                       style: TextStyle(
                         color: color,
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
                       ),
                     ),
                   ),
-                  if (friend.isOnline)
+                  if (isOnline)
                     Positioned(
                       right: 0,
                       bottom: 0,
                       child: Container(
-                        width: 14,
-                        height: 14,
+                        width: 12,
+                        height: 12,
                         decoration: BoxDecoration(
                           color: Colors.green,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: theme.scaffoldBackgroundColor,
+                            color: Theme.of(context).scaffoldBackgroundColor,
                             width: 2,
                           ),
                         ),
@@ -218,36 +790,30 @@ class _FriendCard extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      friend.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
+                      name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      friend.status,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
+                    if (department.isNotEmpty)
+                      Text(
+                        department,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: Icon(
-                  friend.isOnline ? Iconsax.message : Iconsax.message_question,
-                  color: AdaptiveDrawer.primaryColor,
-                ),
-                onPressed: () => _startChat(context),
-              ),
+              if (showAddButton ||
+                  showRemoveButton ||
+                  showAcceptRejectButtons ||
+                  showCancelButton)
+                _buildActionButtons(context) ?? const SizedBox(),
             ],
           ),
         ),
@@ -255,7 +821,69 @@ class _FriendCard extends StatelessWidget {
     );
   }
 
-  void _startChat(BuildContext context) {
-    Navigator.pushNamed(context, '/chat', arguments: friend);
+  Widget? _buildActionButtons(BuildContext context) {
+    if (showAddButton) {
+      return IconButton(
+        icon: const Icon(Iconsax.user_add),
+        onPressed: () => _sendFriendRequest(context),
+      );
+    }
+
+    if (showRemoveButton) {
+      return IconButton(
+        icon: const Icon(Iconsax.user_minus),
+        onPressed: () => _removeFriend(context),
+      );
+    }
+
+    if (showAcceptRejectButtons) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.check, color: Colors.green),
+            onPressed: () => _acceptFriendRequest(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.red),
+            onPressed: () => _rejectFriendRequest(context),
+          ),
+        ],
+      );
+    }
+
+    if (showCancelButton) {
+      return IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () => _cancelFriendRequest(context),
+      );
+    }
+
+    return null;
+  }
+
+  void _sendFriendRequest(BuildContext context) {
+    final state = context.findAncestorStateOfType<_FriendsScreenState>();
+    state?._sendFriendRequest(context, userId);
+  }
+
+  void _removeFriend(BuildContext context) {
+    final state = context.findAncestorStateOfType<_FriendsScreenState>();
+    state?._removeFriend(context, userId);
+  }
+
+  void _acceptFriendRequest(BuildContext context) {
+    final state = context.findAncestorStateOfType<_FriendsScreenState>();
+    state?._acceptFriendRequest(context, userId);
+  }
+
+  void _rejectFriendRequest(BuildContext context) {
+    final state = context.findAncestorStateOfType<_FriendsScreenState>();
+    state?._rejectFriendRequest(context, userId);
+  }
+
+  void _cancelFriendRequest(BuildContext context) {
+    final state = context.findAncestorStateOfType<_FriendsScreenState>();
+    state?._cancelFriendRequest(context, userId);
   }
 }
