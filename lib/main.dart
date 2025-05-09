@@ -7,7 +7,7 @@ import 'views/auth/register.dart';
 import 'views/home.dart';
 // Imports pour les écrans du drawer
 import 'views/friends.dart';
-import 'views/chatrooms.dart';
+import 'views/chat/chatrooms.dart';
 import 'views/calendar.dart';
 import 'views/settings.dart';
 import 'views/notifications.dart';

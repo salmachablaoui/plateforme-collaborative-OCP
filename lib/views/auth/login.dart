@@ -15,8 +15,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+  String? _successMessage;
 
-  // Constantes de style (identiques à register.dart)
+  // Constantes de style
   static const _backColor = Color(0xFFF4F6FC);
   static const _mainGreenColor = Color(0xFF2F9D4E);
   static const _greenDarkColor = Color(0xFF1E8449);
@@ -40,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _successMessage = null;
     });
 
     try {
@@ -61,6 +63,41 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() {
+        _errorMessage =
+            'Veuillez entrer un email valide pour réinitialiser le mot de passe';
+        _successMessage = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      setState(() {
+        _successMessage = 'Un email de réinitialisation a été envoyé à $email';
+        _errorMessage = null;
+      });
+    } on FirebaseAuthException catch (e) {
+      setState(() => _errorMessage = _getErrorMessage(e.code));
+    } catch (e) {
+      setState(
+        () =>
+            _errorMessage =
+                'Erreur lors de l\'envoi de l\'email de réinitialisation',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   String _getErrorMessage(String code) {
     switch (code) {
       case 'user-not-found':
@@ -70,6 +107,8 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'Compte désactivé';
       case 'invalid-email':
         return 'Email invalide';
+      case 'too-many-requests':
+        return 'Trop de tentatives. Veuillez réessayer plus tard';
       default:
         return 'Erreur de connexion';
     }
@@ -84,10 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: _backColor,
       body: Row(
         children: [
-          // Side panel pour les grands écrans
           if (isLargeScreen) _buildSidePanel(),
-
-          // Contenu principal
           Expanded(
             flex: isLargeScreen ? 2 : 1,
             child: SingleChildScrollView(
@@ -99,10 +135,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!isLargeScreen) _buildMobileHeader(),
-
                   _buildTitleSection(),
                   const SizedBox(height: _defaultPadding * 2),
-
                   Form(
                     key: _formKey,
                     child: Column(
@@ -127,7 +161,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
                         const SizedBox(height: _defaultPadding),
-
                         _buildInputLabel('Mot de passe'),
                         _buildInputField(
                           controller: _passwordController,
@@ -156,10 +189,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
-
                         if (_errorMessage != null) _buildErrorMessage(),
+                        if (_successMessage != null) _buildSuccessMessage(),
                         const SizedBox(height: _defaultPadding * 1.5),
-
                         SizedBox(
                           width: double.infinity,
                           height: _inputFieldHeight,
@@ -195,21 +227,43 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: _defaultPadding),
-
-                        Center(
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.pushNamed(context, '/register');
-                            },
-                            child: Text(
-                              'Pas encore de compte ? Créer un compte',
-                              style: TextStyle(
-                                color: _mainGreenColor,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
+                        // Nouvelle rangée avec les deux boutons
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pushNamed(context, '/register');
+                              },
+                              child: Text(
+                                'Créer un compte',
+                                style: TextStyle(
+                                  color: _mainGreenColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
                               ),
                             ),
-                          ),
+                            Text(
+                              '•',
+                              style: TextStyle(
+                                color: _textColor.withOpacity(0.5),
+                                fontSize: 16,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  _isLoading ? null : () => _resetPassword(),
+                              child: Text(
+                                'Mot de passe oublié ?',
+                                style: TextStyle(
+                                  color: _mainGreenColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -379,6 +433,24 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Text(
               _errorMessage!,
               style: TextStyle(color: _errorColor, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuccessMessage() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: _defaultPadding),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: _mainGreenColor, size: 16),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _successMessage!,
+              style: TextStyle(color: _mainGreenColor, fontSize: 14),
             ),
           ),
         ],
