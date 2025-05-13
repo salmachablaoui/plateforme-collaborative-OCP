@@ -114,7 +114,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showCreateChatroomDialog(context),
-        backgroundColor: Colors.blue,
+        backgroundColor: Colors.green,
         child: const Icon(Iconsax.add, color: Colors.white),
       ),
     );

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:iconsax/iconsax.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
-
   const ProfileScreen({super.key, this.user});
 
   @override
@@ -18,31 +19,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isEditing = false;
   final _formKey = GlobalKey<FormState>();
+  File? _imageFile;
+  Uint8List? _imageBytes;
+  final ImagePicker _picker = ImagePicker();
 
   late TextEditingController _fullNameController;
+  late TextEditingController _departmentController;
+  late TextEditingController _phoneController;
 
   @override
   void initState() {
     super.initState();
     _userData = {
       'fullName': 'Chargement...',
-      'email': widget.user?.email ?? '',
+      'email': '',
       'department': '',
       'phone': '',
+      'photoBase64': '',
     };
     _fullNameController = TextEditingController();
+    _departmentController = TextEditingController();
+    _phoneController = TextEditingController();
     _loadUserData();
   }
 
-  @override
-  void dispose() {
-    _fullNameController.dispose();
-    super.dispose();
+  Future<void> _pickImage() async {
+    try {
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        if (kIsWeb) {
+          _imageBytes = await pickedFile.readAsBytes();
+        } else {
+          _imageFile = File(pickedFile.path);
+          _imageBytes = await _imageFile!.readAsBytes();
+        }
+        await _saveProfileImage();
+      }
+    } catch (e) {
+      _showError('Erreur lors de la sélection: $e');
+    }
+  }
+
+  Future<void> _saveProfileImage() async {
+    if (_imageBytes == null || widget.user == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final base64Image = base64Encode(_imageBytes!);
+      final imageData = 'data:image/jpeg;base64,$base64Image';
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user!.uid)
+          .update({
+            'photoBase64': imageData,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+      await _loadUserData();
+      _showSuccess('Photo sauvegardée avec succès');
+    } catch (e) {
+      _showError('Erreur sauvegarde photo: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _loadUserData() async {
     if (widget.user == null) return;
 
+    setState(() => _isLoading = true);
     try {
       DocumentSnapshot doc =
           await FirebaseFirestore.instance
@@ -52,27 +104,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (doc.exists) {
         setState(() {
-          _userData = {
-            'fullName': doc['fullName'] ?? 'Non spécifié',
-            'email': doc['email'] ?? widget.user?.email ?? 'Non spécifié',
-            'department': doc['department'] ?? 'Non spécifié',
-            'phone': doc['phone'] ?? 'Non spécifié',
-          };
-          _fullNameController.text = _userData['fullName'];
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _userData['fullName'] = 'Non trouvé';
-          _isLoading = false;
+          _userData = doc.data() as Map<String, dynamic>;
+          _fullNameController.text = _userData['fullName'] ?? '';
+          _departmentController.text = _userData['department'] ?? '';
+          _phoneController.text = _userData['phone'] ?? '';
         });
       }
     } catch (e) {
-      setState(() {
-        _userData['fullName'] = 'Erreur de chargement';
-        _isLoading = false;
-      });
+      _showError('Erreur chargement données: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  ImageProvider? _getProfileImage() {
+    try {
+      if (_userData['photoBase64']?.isNotEmpty == true) {
+        return MemoryImage(
+          base64Decode(_userData['photoBase64'].split(',').last),
+        );
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Erreur chargement image: $e');
+      return null;
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
   }
 
   @override
@@ -81,11 +151,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         title: const Text('Profil'),
         actions: [
-          if (!_isLoading)
-            IconButton(
-              icon: Icon(_isEditing ? Iconsax.save_2 : Iconsax.edit_2),
-              onPressed: _toggleEditMode,
-            ),
+          IconButton(
+            icon: Icon(_isEditing ? Icons.save : Icons.edit),
+            onPressed: _toggleEditMode,
+          ),
         ],
       ),
       body:
@@ -107,24 +176,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileHeader() {
     return Column(
       children: [
-        CircleAvatar(
-          radius: 50,
-          backgroundImage:
-              widget.user?.photoURL != null
-                  ? CachedNetworkImageProvider(widget.user!.photoURL!)
-                  : null,
-          child:
-              widget.user?.photoURL == null
-                  ? const Icon(Iconsax.user, size: 40)
-                  : null,
+        GestureDetector(
+          onTap: _isEditing ? _pickImage : null,
+          child: CircleAvatar(
+            radius: 50,
+            backgroundColor: Colors.grey[200],
+            backgroundImage: _getProfileImage(),
+            child:
+                _userData['photoBase64']?.isEmpty ?? true
+                    ? const Icon(Icons.person, size: 40, color: Colors.white)
+                    : null,
+          ),
         ),
         const SizedBox(height: 16),
         Text(
           _userData['fullName'],
           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
+        Text(_userData['email'], style: TextStyle(color: Colors.grey[600])),
       ],
     );
+  }
+
+  void _toggleEditMode() async {
+    if (_isEditing) {
+      if (_formKey.currentState!.validate()) {
+        await _saveProfileData();
+      }
+    }
+    setState(() => _isEditing = !_isEditing);
+  }
+
+  Future<void> _saveProfileData() async {
+    if (widget.user == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user!.uid)
+          .update({
+            'fullName': _fullNameController.text.trim(),
+            'department': _departmentController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+      await _loadUserData();
+      _showSuccess('Profil mis à jour');
+    } catch (e) {
+      _showError('Erreur sauvegarde: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Widget _buildProfileForm() {
@@ -133,28 +237,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         children: [
           _buildInfoTile(
-            icon: Iconsax.user,
+            icon: Icons.person,
             label: 'Nom complet',
-            value: _userData['fullName'],
             controller: _fullNameController,
+            isEditable: _isEditing,
           ),
           const Divider(),
           _buildInfoTile(
-            icon: Iconsax.sms,
+            icon: Icons.email,
             label: 'Email',
             value: _userData['email'],
+            isEditable: false,
           ),
           const Divider(),
           _buildInfoTile(
-            icon: Iconsax.building,
+            icon: Icons.work,
             label: 'Département',
-            value: _userData['department'],
+            controller: _departmentController,
+            isEditable: _isEditing,
           ),
           const Divider(),
           _buildInfoTile(
-            icon: Iconsax.call,
+            icon: Icons.phone,
             label: 'Téléphone',
-            value: _userData['phone'],
+            controller: _phoneController,
+            isEditable: _isEditing,
           ),
         ],
       ),
@@ -164,19 +271,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildInfoTile({
     required IconData icon,
     required String label,
-    required String value,
+    String? value,
     TextEditingController? controller,
+    required bool isEditable,
   }) {
     return ListTile(
       leading: Icon(icon, color: Colors.blue),
       title:
-          _isEditing && controller != null
+          isEditable && controller != null
               ? TextFormField(
                 controller: controller,
-                decoration: InputDecoration(labelText: label),
-                validator:
-                    (value) =>
-                        value?.isEmpty ?? true ? 'Ce champ est requis' : null,
+                decoration: InputDecoration(
+                  labelText: label,
+                  border: const OutlineInputBorder(),
+                ),
               )
               : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,15 +295,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    value,
+                    value ?? controller?.text ?? 'Non renseigné',
                     style: TextStyle(
                       fontSize: 16,
-                      fontStyle:
-                          (value == 'Non spécifié' || value == 'Non trouvé')
-                              ? FontStyle.italic
-                              : FontStyle.normal,
                       color:
-                          (value == 'Non spécifié' || value == 'Non trouvé')
+                          (value ?? controller?.text)?.isEmpty ?? true
                               ? Colors.grey
                               : Colors.black,
                     ),
@@ -203,33 +307,5 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
     );
-  }
-
-  void _toggleEditMode() async {
-    if (_isEditing) {
-      if (_formKey.currentState!.validate()) {
-        setState(() => _isLoading = true);
-        try {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.user!.uid)
-              .update({
-                'fullName': _fullNameController.text,
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
-          await _loadUserData();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profil mis à jour avec succès')),
-          );
-        } catch (e) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-        } finally {
-          setState(() => _isLoading = false);
-        }
-      }
-    }
-    setState(() => _isEditing = !_isEditing);
   }
 }

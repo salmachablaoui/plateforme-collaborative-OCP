@@ -240,7 +240,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: isMe ? Colors.blue : Colors.grey[200],
+                    color: isMe ? Colors.green : Colors.grey[200],
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
@@ -299,7 +299,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
             children: [
               const Icon(Iconsax.document),
               const SizedBox(width: 8),
-              Text('Document', style: TextStyle(color: Colors.blue)),
+              Text('Document', style: TextStyle(color: Colors.green)),
             ],
           ),
         );
@@ -315,7 +315,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
             children: [
               const Icon(Iconsax.voice_cricle),
               const SizedBox(width: 8),
-              Text('Audio', style: TextStyle(color: Colors.blue)),
+              Text('Audio', style: TextStyle(color: Colors.green)),
             ],
           ),
         );
@@ -525,7 +525,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
                     IconButton(
                       icon: const Icon(Iconsax.send1),
                       onPressed: _sendMessage,
-                      color: Colors.blue,
+                      color: Colors.green,
                     ),
                   ],
                 ),
@@ -619,7 +619,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
                                   isAdmin
                                       ? const Chip(
                                         label: Text('Admin'),
-                                        backgroundColor: Colors.blue,
+                                        backgroundColor: Colors.green,
                                         labelStyle: TextStyle(
                                           color: Colors.white,
                                         ),
