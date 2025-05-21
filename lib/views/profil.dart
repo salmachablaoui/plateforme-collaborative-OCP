@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
-  const ProfileScreen({super.key, this.user});
+  final String? userId;
+
+  const ProfileScreen({super.key, this.user, this.userId});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -43,6 +45,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserData();
   }
 
+  String get _uid {
+    return widget.user?.uid ?? widget.userId ?? '';
+  }
+
   Future<void> _pickImage() async {
     try {
       final pickedFile = await _picker.pickImage(
@@ -67,20 +73,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _saveProfileImage() async {
-    if (_imageBytes == null || widget.user == null) return;
+    if (_imageBytes == null || _uid.isEmpty) return;
 
     setState(() => _isLoading = true);
     try {
       final base64Image = base64Encode(_imageBytes!);
       final imageData = 'data:image/jpeg;base64,$base64Image';
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.user!.uid)
-          .update({
-            'photoBase64': imageData,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+      await FirebaseFirestore.instance.collection('users').doc(_uid).update({
+        'photoBase64': imageData,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       await _loadUserData();
       _showSuccess('Photo sauvegardée avec succès');
@@ -92,15 +95,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadUserData() async {
-    if (widget.user == null) return;
+    if (_uid.isEmpty) return;
 
     setState(() => _isLoading = true);
     try {
       DocumentSnapshot doc =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.user!.uid)
-              .get();
+          await FirebaseFirestore.instance.collection('users').doc(_uid).get();
 
       if (doc.exists) {
         setState(() {
@@ -108,6 +108,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _fullNameController.text = _userData['fullName'] ?? '';
           _departmentController.text = _userData['department'] ?? '';
           _phoneController.text = _userData['phone'] ?? '';
+
+          // Set email from Firestore if not available from User object
+          if (widget.user == null && _userData['email'] != null) {
+            _userData['email'] = _userData['email'];
+          } else if (widget.user != null) {
+            _userData['email'] = widget.user!.email ?? '';
+          }
         });
       }
     } catch (e) {
@@ -208,19 +215,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _saveProfileData() async {
-    if (widget.user == null) return;
+    if (_uid.isEmpty) return;
 
     setState(() => _isLoading = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.user!.uid)
-          .update({
-            'fullName': _fullNameController.text.trim(),
-            'department': _departmentController.text.trim(),
-            'phone': _phoneController.text.trim(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+      await FirebaseFirestore.instance.collection('users').doc(_uid).update({
+        'fullName': _fullNameController.text.trim(),
+        'department': _departmentController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       await _loadUserData();
       _showSuccess('Profil mis à jour');
@@ -276,7 +280,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required bool isEditable,
   }) {
     return ListTile(
-      leading: Icon(icon, color: Colors.blue),
+      leading: Icon(icon, color: Colors.green),
       title:
           isEditable && controller != null
               ? TextFormField(
@@ -307,5 +311,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
     );
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _departmentController.dispose();
+    _phoneController.dispose();
+    super.dispose();
   }
 }

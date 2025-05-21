@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
@@ -15,14 +18,75 @@ class NavigationProvider extends ChangeNotifier {
   }
 }
 
-class AdaptiveDrawer extends StatelessWidget {
-  const AdaptiveDrawer({super.key});
-
+class AdaptiveDrawer extends StatefulWidget {
   // Couleurs corporate
   static const primaryColor = Color(0xFF2F9D4E);
   static const primaryDark = Color(0xFF1E8449);
   static const primaryLight = Color(0xFFE8F5E9);
   static const accentColor = Color(0xFFF7931E);
+
+  const AdaptiveDrawer({super.key});
+
+  @override
+  State<AdaptiveDrawer> createState() => _AdaptiveDrawerState();
+}
+
+class _AdaptiveDrawerState extends State<AdaptiveDrawer> {
+  Map<String, dynamic> _userData = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      DocumentSnapshot doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+
+      if (doc.exists) {
+        setState(() {
+          _userData = doc.data() as Map<String, dynamic>;
+        });
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement données utilisateur: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  ImageProvider? _getProfileImage() {
+    try {
+      if (_userData['photoBase64']?.isNotEmpty == true) {
+        final base64String = _userData['photoBase64'].split(',').last;
+        return MemoryImage(base64Decode(base64String));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Erreur chargement image: $e');
+      return null;
+    }
+  }
+
+  String _getInitials() {
+    final name =
+        _userData['fullName'] ??
+        FirebaseAuth.instance.currentUser?.displayName ??
+        'Utilisateur';
+    return name.isNotEmpty
+        ? name.split(' ').map((n) => n[0]).take(2).join().toUpperCase()
+        : '?';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,16 +123,14 @@ class AdaptiveDrawer extends StatelessWidget {
   }
 
   Widget _buildHeader(BuildContext context, User? user) {
-    final String? photoUrl = user?.photoURL;
-
     return Container(
       height: 180,
       decoration: BoxDecoration(
-        color: primaryColor,
+        color: AdaptiveDrawer.primaryColor,
         borderRadius: const BorderRadius.only(bottomRight: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
-            color: primaryDark.withOpacity(0.3),
+            color: AdaptiveDrawer.primaryDark.withOpacity(0.3),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -85,7 +147,7 @@ class AdaptiveDrawer extends StatelessWidget {
               height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: primaryDark.withOpacity(0.2),
+                color: AdaptiveDrawer.primaryDark.withOpacity(0.2),
               ),
             ),
           ),
@@ -100,17 +162,19 @@ class AdaptiveDrawer extends StatelessWidget {
                       CircleAvatar(
                         radius: 36,
                         backgroundColor:
-                            photoUrl == null
-                                ? primaryLight
+                            _getProfileImage() == null
+                                ? AdaptiveDrawer.primaryLight
                                 : Colors.transparent,
-                        backgroundImage:
-                            photoUrl != null ? NetworkImage(photoUrl) : null,
+                        backgroundImage: _getProfileImage(),
                         child:
-                            photoUrl == null
-                                ? const Icon(
-                                  Iconsax.user,
-                                  size: 32,
-                                  color: primaryDark,
+                            _getProfileImage() == null
+                                ? Text(
+                                  _getInitials(),
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    color: AdaptiveDrawer.primaryDark,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 )
                                 : null,
                       ),
@@ -131,7 +195,7 @@ class AdaptiveDrawer extends StatelessWidget {
                   ).animate().scale(duration: 400.ms).shake(delay: 300.ms),
                   const SizedBox(height: 12),
                   Text(
-                    user?.displayName ?? 'Utilisateur',
+                    _userData['fullName'] ?? user?.displayName ?? 'Utilisateur',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -156,6 +220,10 @@ class AdaptiveDrawer extends StatelessWidget {
       ),
     );
   }
+
+  // Les autres méthodes (_buildMainSection, _buildSecondarySection, _buildFooter)
+  // restent exactement les mêmes que dans votre code original
+  // ...
 
   Widget _buildMainSection(BuildContext context) {
     final navProvider = Provider.of<NavigationProvider>(context, listen: false);

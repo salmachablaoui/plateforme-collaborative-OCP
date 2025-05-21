@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:app_stage/views/shared/adaptive_drawer.dart';
 import 'package:app_stage/views/shared/custom_app_bar.dart';
 import 'package:app_stage/views/profil.dart';
@@ -200,6 +202,8 @@ class _FriendsScreenState extends State<FriendsScreen>
                     userId: friendId,
                     name: userData['fullName'] ?? 'Utilisateur inconnu',
                     department: userData['department'] ?? '',
+                    photoUrl: userData['photoUrl'],
+                    photoBase64: userData['photoBase64'],
                     isOnline: userData['isOnline'] ?? false,
                     showRemoveButton: true,
                     onTap: () => _navigateToUserProfile(friendId),
@@ -247,20 +251,15 @@ class _FriendsScreenState extends State<FriendsScreen>
             final allUsers = allUsersSnapshot.data?.docs ?? [];
             final friends = friendsSnapshot.data?.docs ?? [];
 
-            // Filtrer les utilisateurs
             final suggestions =
                 allUsers.where((user) {
-                  // Exclure l'utilisateur courant
                   if (user.id == _user?.uid) return false;
-
-                  // Exclure les amis existants
                   final isFriend = friends.any(
                     (friend) => friend.id == user.id,
                   );
                   return !isFriend;
                 }).toList();
 
-            // Filtre supplémentaire pour la recherche
             final filteredSuggestions =
                 _searchQuery.isEmpty
                     ? suggestions
@@ -290,6 +289,8 @@ class _FriendsScreenState extends State<FriendsScreen>
                   userId: user.id,
                   name: userData['fullName'] ?? 'Utilisateur inconnu',
                   department: userData['department'] ?? '',
+                  photoUrl: userData['photoUrl'],
+                  photoBase64: userData['photoBase64'],
                   isOnline: userData['isOnline'] ?? false,
                   showAddButton: true,
                   onTap: () => _navigateToUserProfile(user.id),
@@ -371,6 +372,8 @@ class _FriendsScreenState extends State<FriendsScreen>
                   userId: request.id,
                   name: userData['fullName'] ?? 'Utilisateur inconnu',
                   department: userData['department'] ?? '',
+                  photoUrl: userData['photoUrl'],
+                  photoBase64: userData['photoBase64'],
                   isOnline: userData['isOnline'] ?? false,
                   showAcceptRejectButtons: true,
                   onTap: () => _navigateToUserProfile(request.id),
@@ -428,6 +431,8 @@ class _FriendsScreenState extends State<FriendsScreen>
                   userId: request.id,
                   name: userData['fullName'] ?? 'Utilisateur inconnu',
                   department: userData['department'] ?? '',
+                  photoUrl: userData['photoUrl'],
+                  photoBase64: userData['photoBase64'],
                   isOnline: userData['isOnline'] ?? false,
                   showCancelButton: true,
                   onTap: () => _navigateToUserProfile(request.id),
@@ -491,7 +496,6 @@ class _FriendsScreenState extends State<FriendsScreen>
     String recipientId,
   ) async {
     try {
-      // Vérifier si déjà ami
       final friendDoc =
           await _firestore
               .collection('users')
@@ -507,7 +511,6 @@ class _FriendsScreenState extends State<FriendsScreen>
         return;
       }
 
-      // Vérifier si demande déjà envoyée
       final existingRequest =
           await _firestore
               .collection('users')
@@ -523,7 +526,6 @@ class _FriendsScreenState extends State<FriendsScreen>
         return;
       }
 
-      // Envoyer la demande avec une transaction
       await _firestore.runTransaction((transaction) async {
         transaction.set(
           _firestore
@@ -556,7 +558,6 @@ class _FriendsScreenState extends State<FriendsScreen>
 
   Future<void> _removeFriend(BuildContext context, String friendId) async {
     try {
-      // Utiliser une transaction pour supprimer des deux côtés
       await _firestore.runTransaction((transaction) async {
         transaction.delete(
           _firestore
@@ -591,9 +592,7 @@ class _FriendsScreenState extends State<FriendsScreen>
   ) async {
     final timestamp = FieldValue.serverTimestamp();
     try {
-      // Utiliser une transaction pour garantir l'intégrité des données
       await _firestore.runTransaction((transaction) async {
-        // 1. Supprimer la demande
         transaction.delete(
           _firestore
               .collection('users')
@@ -610,7 +609,6 @@ class _FriendsScreenState extends State<FriendsScreen>
               .doc(_user?.uid),
         );
 
-        // 2. Ajouter comme amis des deux côtés
         transaction.set(
           _firestore
               .collection('users')
@@ -645,7 +643,6 @@ class _FriendsScreenState extends State<FriendsScreen>
     String senderId,
   ) async {
     try {
-      // Utiliser une transaction pour supprimer des deux côtés
       await _firestore.runTransaction((transaction) async {
         transaction.delete(
           _firestore
@@ -679,7 +676,6 @@ class _FriendsScreenState extends State<FriendsScreen>
     String recipientId,
   ) async {
     try {
-      // Utiliser une transaction pour supprimer des deux côtés
       await _firestore.runTransaction((transaction) async {
         transaction.delete(
           _firestore
@@ -711,7 +707,7 @@ class _FriendsScreenState extends State<FriendsScreen>
   void _navigateToUserProfile(String userId) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => ProfileScreen()),
+      MaterialPageRoute(builder: (context) => ProfileScreen(userId: userId)),
     );
   }
 }
@@ -720,6 +716,8 @@ class UserCard extends StatelessWidget {
   final String userId;
   final String name;
   final String department;
+  final String? photoUrl;
+  final String? photoBase64;
   final bool isOnline;
   final bool showAddButton;
   final bool showRemoveButton;
@@ -731,6 +729,8 @@ class UserCard extends StatelessWidget {
     required this.userId,
     required this.name,
     required this.department,
+    this.photoUrl,
+    this.photoBase64,
     required this.isOnline,
     this.showAddButton = false,
     this.showRemoveButton = false,
@@ -741,7 +741,6 @@ class UserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Colors.primaries[name.length % Colors.primaries.length];
     final initials =
         name.isNotEmpty
             ? name
@@ -753,24 +752,21 @@ class UserCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
+      ),
       child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               Stack(
                 children: [
-                  CircleAvatar(
-                    backgroundColor: color.withOpacity(0.2),
-                    child: Text(
-                      initials,
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  _buildUserAvatar(initials),
                   if (isOnline)
                     Positioned(
                       right: 0,
@@ -797,14 +793,18 @@ class UserCard extends StatelessWidget {
                   children: [
                     Text(
                       name,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (department.isNotEmpty)
                       Text(
                         department,
-                        style: Theme.of(context).textTheme.bodySmall,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                   ],
                 ),
@@ -821,17 +821,54 @@ class UserCard extends StatelessWidget {
     );
   }
 
+  Widget _buildUserAvatar(String initials) {
+    if (photoUrl != null && photoUrl!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 24,
+        backgroundImage: CachedNetworkImageProvider(photoUrl!),
+        backgroundColor: Colors.grey.shade200,
+      );
+    } else if (photoBase64 != null && photoBase64!.isNotEmpty) {
+      try {
+        final base64String = photoBase64!.split(',').last;
+        return CircleAvatar(
+          radius: 24,
+          backgroundImage: MemoryImage(base64Decode(base64String)),
+          backgroundColor: Colors.grey.shade200,
+        );
+      } catch (e) {
+        return _buildInitialsAvatar(initials);
+      }
+    } else {
+      return _buildInitialsAvatar(initials);
+    }
+  }
+
+  Widget _buildInitialsAvatar(String initials) {
+    final color = Colors.primaries[name.length % Colors.primaries.length];
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor: color.withOpacity(0.2),
+      child: Text(
+        initials,
+        style: TextStyle(color: color, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
   Widget? _buildActionButtons(BuildContext context) {
     if (showAddButton) {
       return IconButton(
-        icon: const Icon(Iconsax.user_add),
+        icon: const Icon(Iconsax.user_add, size: 22),
+        color: Theme.of(context).primaryColor,
         onPressed: () => _sendFriendRequest(context),
       );
     }
 
     if (showRemoveButton) {
       return IconButton(
-        icon: const Icon(Iconsax.user_minus),
+        icon: const Icon(Iconsax.user_minus, size: 22),
+        color: Colors.red,
         onPressed: () => _removeFriend(context),
       );
     }
@@ -841,11 +878,13 @@ class UserCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.check, color: Colors.green),
+            icon: const Icon(Icons.check, size: 22),
+            color: Colors.green,
             onPressed: () => _acceptFriendRequest(context),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.red),
+            icon: const Icon(Icons.close, size: 22),
+            color: Colors.red,
             onPressed: () => _rejectFriendRequest(context),
           ),
         ],
@@ -854,7 +893,8 @@ class UserCard extends StatelessWidget {
 
     if (showCancelButton) {
       return IconButton(
-        icon: const Icon(Icons.close),
+        icon: const Icon(Icons.close, size: 22),
+        color: Colors.grey,
         onPressed: () => _cancelFriendRequest(context),
       );
     }
