@@ -29,7 +29,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
   Map<String, String> _userPhotos = {};
   bool _showAttachmentOptions = false;
 
-  // Nouvelle méthode pour gérer les pièces jointes
   void _toggleAttachmentOptions() {
     setState(() {
       _showAttachmentOptions = !_showAttachmentOptions;
@@ -38,7 +37,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
 
   Future<void> _sendFileMessage(String fileType, String filePath) async {
     try {
-      // Envoyer le message avec pièce jointe
       await _firestore
           .collection('chatrooms')
           .doc(widget.chatroomId)
@@ -47,73 +45,115 @@ class _ChatroomPageState extends State<ChatroomPage> {
             'text': '[Fichier $fileType]',
             'senderId': _currentUser?.uid,
             'timestamp': FieldValue.serverTimestamp(),
-            'attachment': {
-              'type': fileType,
-              'url':
-                  filePath, // Vous devrez uploader le fichier et obtenir l'URL
-            },
+            'attachment': {'type': fileType, 'url': filePath},
           });
 
-      // Mettre à jour la chatroom comme dans _sendMessage()
       await _updateChatroomAfterMessage('[Fichier $fileType]');
     } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
     }
   }
 
   Future<void> _updateChatroomAfterMessage(String message) async {
-    await _firestore.collection('chatrooms').doc(widget.chatroomId).update({
-      'lastMessage': message,
-      'lastMessageSender': _currentUser?.uid,
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'unreadCounts.${_currentUser?.uid}': 0,
-    });
+    try {
+      await _firestore.collection('chatrooms').doc(widget.chatroomId).update({
+        'lastMessage': message,
+        'lastMessageSender': _currentUser?.uid,
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unreadCounts.${_currentUser?.uid}': 0,
+      });
 
-    final chatroomDoc =
-        await _firestore.collection('chatrooms').doc(widget.chatroomId).get();
-    final participants = List<String>.from(chatroomDoc['participants'] ?? []);
+      final chatroomDoc =
+          await _firestore.collection('chatrooms').doc(widget.chatroomId).get();
+      final participants = List<String>.from(chatroomDoc['participants'] ?? []);
 
-    for (final participant in participants) {
-      if (participant != _currentUser?.uid) {
-        await _firestore.collection('chatrooms').doc(widget.chatroomId).update({
-          'unreadCounts.$participant': FieldValue.increment(1),
-        });
+      for (final participant in participants) {
+        if (participant != _currentUser?.uid) {
+          await _firestore
+              .collection('chatrooms')
+              .doc(widget.chatroomId)
+              .update({'unreadCounts.$participant': FieldValue.increment(1)});
+        }
       }
+    } catch (e) {
+      debugPrint('Error updating chatroom: $e');
     }
   }
 
-  // Méthodes pour les différents types de pièces jointes
   Future<void> _pickDocument() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
-    if (result != null) {
-      PlatformFile file = result.files.first;
-      _sendFileMessage('document', file.path!);
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles();
+      if (result != null && result.files.isNotEmpty) {
+        PlatformFile file = result.files.first;
+        if (file.path != null) {
+          _sendFileMessage('document', file.path!);
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erreur lors de la sélection du document: ${e.toString()}',
+          ),
+        ),
+      );
+    } finally {
+      _toggleAttachmentOptions();
     }
-    _toggleAttachmentOptions();
   }
 
   Future<void> _pickImageFromGallery() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      _sendFileMessage('image', image.path);
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image != null) {
+        _sendFileMessage('image', image.path);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erreur lors de la sélection de l\'image: ${e.toString()}',
+          ),
+        ),
+      );
+    } finally {
+      _toggleAttachmentOptions();
     }
-    _toggleAttachmentOptions();
   }
 
   Future<void> _takePhoto() async {
-    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
-    if (photo != null) {
-      _sendFileMessage('image', photo.path);
+    try {
+      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+      if (photo != null) {
+        _sendFileMessage('image', photo.path);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de la prise de photo: ${e.toString()}'),
+        ),
+      );
+    } finally {
+      _toggleAttachmentOptions();
     }
-    _toggleAttachmentOptions();
   }
 
   void _recordAudio() {
-    // Implémentation de l'enregistrement audio
-    _sendFileMessage('audio', 'chemin/vers/audio');
-    _toggleAttachmentOptions();
+    try {
+      _sendFileMessage('audio', 'chemin/vers/audio');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erreur lors de l\'enregistrement audio: ${e.toString()}',
+          ),
+        ),
+      );
+    } finally {
+      _toggleAttachmentOptions();
+    }
   }
 
   @override
@@ -172,21 +212,29 @@ class _ChatroomPageState extends State<ChatroomPage> {
       await _updateChatroomAfterMessage(message);
       _scrollToBottom();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de l\'envoi du message: ${e.toString()}'),
+        ),
+      );
     }
   }
 
   Future<void> _loadUserInfo(String userId) async {
     if (_userNames.containsKey(userId)) return;
 
-    final userDoc = await _firestore.collection('users').doc(userId).get();
-    if (userDoc.exists) {
-      setState(() {
-        _userNames[userId] = userDoc['fullName'] ?? 'Utilisateur';
-        _userPhotos[userId] = userDoc['photoUrl'];
-      });
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>? ?? {};
+        setState(() {
+          _userNames[userId] = data['fullName'] ?? 'Utilisateur';
+          _userPhotos[userId] =
+              data['photoUrl'] ?? ''; // Using photoUrl instead of photour1
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user info: $e');
     }
   }
 
@@ -211,11 +259,11 @@ class _ChatroomPageState extends State<ChatroomPage> {
             CircleAvatar(
               radius: 16,
               backgroundImage:
-                  _userPhotos[senderId] != null
+                  _userPhotos[senderId]?.isNotEmpty ?? false
                       ? CachedNetworkImageProvider(_userPhotos[senderId]!)
                       : null,
               child:
-                  _userPhotos[senderId] == null
+                  _userPhotos[senderId]?.isEmpty ?? true
                       ? Text(_userNames[senderId]?.substring(0, 1) ?? 'U')
                       : null,
             ),
@@ -270,8 +318,8 @@ class _ChatroomPageState extends State<ChatroomPage> {
   }
 
   Widget _buildAttachmentWidget(Map<String, dynamic> attachment) {
-    final type = attachment['type'] as String;
-    final url = attachment['url'] as String;
+    final type = attachment['type'] as String? ?? 'unknown';
+    final url = attachment['url'] as String? ?? '';
 
     switch (type) {
       case 'image':
@@ -284,6 +332,19 @@ class _ChatroomPageState extends State<ChatroomPage> {
               width: 200,
               height: 200,
               fit: BoxFit.cover,
+              placeholder:
+                  (context, url) => Container(
+                    color: Colors.grey[300],
+                    width: 200,
+                    height: 200,
+                  ),
+              errorWidget:
+                  (context, url, error) => Container(
+                    color: Colors.grey[300],
+                    width: 200,
+                    height: 200,
+                    child: const Icon(Iconsax.gallery_slash),
+                  ),
             ),
           ),
         );
@@ -297,9 +358,9 @@ class _ChatroomPageState extends State<ChatroomPage> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Iconsax.document),
+              const Icon(Iconsax.document, color: Colors.green),
               const SizedBox(width: 8),
-              Text('Document', style: TextStyle(color: Colors.green)),
+              const Text('Document', style: TextStyle(color: Colors.green)),
             ],
           ),
         );
@@ -313,14 +374,21 @@ class _ChatroomPageState extends State<ChatroomPage> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Iconsax.voice_cricle),
+              const Icon(Iconsax.voice_cricle, color: Colors.green),
               const SizedBox(width: 8),
-              Text('Audio', style: TextStyle(color: Colors.green)),
+              const Text('Audio', style: TextStyle(color: Colors.green)),
             ],
           ),
         );
       default:
-        return const SizedBox();
+        return Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Text('Fichier non reconnu'),
+        );
     }
   }
 
@@ -346,6 +414,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
             ],
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _buildAttachmentOption(
                 Iconsax.document,
@@ -357,7 +426,11 @@ class _ChatroomPageState extends State<ChatroomPage> {
                 'Galerie',
                 _pickImageFromGallery,
               ),
-              _buildAttachmentOption(Iconsax.camera, 'Camera', _takePhoto),
+              _buildAttachmentOption(
+                Iconsax.camera,
+                'Appareil photo',
+                _takePhoto,
+              ),
               _buildAttachmentOption(Iconsax.microphone, 'Audio', _recordAudio),
             ],
           ),
@@ -394,6 +467,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children:
                 participants.map((userId) {
@@ -407,22 +481,26 @@ class _ChatroomPageState extends State<ChatroomPage> {
                       final userData =
                           userSnapshot.data!.data() as Map<String, dynamic>;
                       final fullName = userData['fullName'] ?? 'Utilisateur';
-                      final photoUrl = userData['photoUrl'];
+                      final photoUrl = userData['photoUrl'] as String?;
+                      final isAdmin = userId == chatroomData['createdBy'];
 
                       return Padding(
                         padding: const EdgeInsets.only(right: 8.0),
                         child: Chip(
                           avatar: CircleAvatar(
+                            radius: 14,
                             backgroundImage:
-                                photoUrl != null
+                                photoUrl != null && photoUrl.isNotEmpty
                                     ? CachedNetworkImageProvider(photoUrl)
                                     : null,
                             child:
-                                photoUrl == null
+                                photoUrl == null || photoUrl.isEmpty
                                     ? Text(fullName.substring(0, 1))
                                     : null,
                           ),
                           label: Text(fullName),
+                          backgroundColor:
+                              isAdmin ? Colors.green.withOpacity(0.2) : null,
                         ),
                       );
                     },
@@ -575,66 +653,83 @@ class _ChatroomPageState extends State<ChatroomPage> {
                       style: TextStyle(color: Colors.grey),
                     ),
                   const SizedBox(height: 16),
-                  const Text('Participants:'),
+                  const Text(
+                    'Participants:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
-                  ...participants
-                      .map(
-                        (userId) => FutureBuilder<DocumentSnapshot>(
-                          future:
-                              _firestore.collection('users').doc(userId).get(),
-                          builder: (context, userSnapshot) {
-                            if (!userSnapshot.hasData ||
-                                !userSnapshot.data!.exists) {
-                              return const ListTile(
-                                title: Text('Utilisateur inconnu'),
-                              );
-                            }
+                  Expanded(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children:
+                          participants
+                              .map(
+                                (userId) => FutureBuilder<DocumentSnapshot>(
+                                  future:
+                                      _firestore
+                                          .collection('users')
+                                          .doc(userId)
+                                          .get(),
+                                  builder: (context, userSnapshot) {
+                                    if (!userSnapshot.hasData ||
+                                        !userSnapshot.data!.exists) {
+                                      return const ListTile(
+                                        title: Text('Utilisateur inconnu'),
+                                      );
+                                    }
 
-                            final userData =
-                                userSnapshot.data!.data()
-                                    as Map<String, dynamic>;
-                            final isAdmin = userId == createdBy;
+                                    final userData =
+                                        userSnapshot.data!.data()
+                                            as Map<String, dynamic>;
+                                    final isAdmin = userId == createdBy;
+                                    final fullName =
+                                        userData['fullName'] ?? 'Utilisateur';
+                                    final photoUrl =
+                                        userData['photoUrl'] as String?;
 
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundImage:
-                                    userData['photoUrl'] != null
-                                        ? CachedNetworkImageProvider(
-                                          userData['photoUrl'],
-                                        )
-                                        : null,
-                                child:
-                                    userData['photoUrl'] == null
-                                        ? Text(
-                                          _getInitials(
-                                            userData['fullName'] ?? 'UU',
-                                          ),
-                                        )
-                                        : null,
-                              ),
-                              title: Text(
-                                userData['fullName'] ?? 'Utilisateur',
-                              ),
-                              trailing:
-                                  isAdmin
-                                      ? const Chip(
-                                        label: Text('Admin'),
-                                        backgroundColor: Colors.green,
-                                        labelStyle: TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                      : null,
-                            );
-                          },
-                        ),
-                      )
-                      .toList(),
+                                    return ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundImage:
+                                            photoUrl != null &&
+                                                    photoUrl.isNotEmpty
+                                                ? CachedNetworkImageProvider(
+                                                  photoUrl,
+                                                )
+                                                : null,
+                                        child:
+                                            photoUrl == null || photoUrl.isEmpty
+                                                ? Text(fullName.substring(0, 1))
+                                                : null,
+                                      ),
+                                      title: Text(fullName),
+                                      subtitle:
+                                          isAdmin ? const Text('Admin') : null,
+                                      trailing:
+                                          isAdmin
+                                              ? const Icon(
+                                                Iconsax.crown1,
+                                                color: Colors.amber,
+                                              )
+                                              : null,
+                                    );
+                                  },
+                                ),
+                              )
+                              .toList(),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   if (_currentUser?.uid == createdBy)
-                    ElevatedButton(
-                      onPressed: () => _addParticipants(),
-                      child: const Text('Ajouter des participants'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => _addParticipants(),
+                        child: const Text('Ajouter des participants'),
+                      ),
                     ),
                 ],
               ),
@@ -646,7 +741,9 @@ class _ChatroomPageState extends State<ChatroomPage> {
   }
 
   Future<void> _addParticipants() async {
-    // Implémentez la logique pour ajouter des participants
+    // TODO: Implement participant addition logic
+    // You might want to show a dialog with a list of users to add
+    // and then update the chatroom's participants list
   }
 
   String _getInitials(String fullName) {
