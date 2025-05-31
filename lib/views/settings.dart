@@ -1,8 +1,9 @@
+import 'package:app_stage/views/shared/adaptive_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:iconsax/iconsax.dart';
-import 'package:app_stage/views/shared/adaptive_drawer.dart';
-import 'shared/custom_app_bar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_stage/views/shared/custom_app_bar.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -12,13 +13,107 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final User? _user = FirebaseAuth.instance.currentUser;
   bool _darkMode = false;
   bool _notificationsEnabled = true;
-  bool _biometricAuth = false;
   String _language = 'Français';
   String _themeColor = 'Vert';
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  User? get _currentUser => _user;
+  Map<String, dynamic> _userData = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _darkMode = prefs.getBool('darkMode') ?? false;
+      _language = prefs.getString('language') ?? 'Français';
+      _themeColor = prefs.getString('themeColor') ?? 'Vert';
+      _notificationsEnabled = prefs.getBool('notifications') ?? true;
+    });
+  }
+
+  Future<void> _savePreference(String key, dynamic value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (value is bool) {
+      await prefs.setBool(key, value);
+    } else if (value is String) {
+      await prefs.setString(key, value);
+    }
+  }
+
+  void _changeThemeMode(bool value) {
+    setState(() => _darkMode = value);
+    _savePreference('darkMode', value);
+  }
+
+  void _changeLanguage(String? value) {
+    if (value == null) return;
+    setState(() => _language = value);
+    _savePreference('language', value);
+  }
+
+  void _changeThemeColor(String? value) {
+    if (value == null) return;
+    setState(() => _themeColor = value);
+    _savePreference('themeColor', value);
+  }
+
+  void _toggleNotifications(bool value) {
+    setState(() => _notificationsEnabled = value);
+    _savePreference('notifications', value);
+  }
+
+  Future<void> _changePassword() async {
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: _user?.email ?? '',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lien de réinitialisation envoyé par email'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      }
+    }
+  }
+
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Déconnexion'),
+            content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () {
+                  FirebaseAuth.instance.signOut();
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                },
+                child: const Text('Déconnexion'),
+              ),
+            ],
+          ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,8 +123,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: CustomAppBar(
         title: 'Paramètres',
         scaffoldKey: _scaffoldKey,
-        user: _user,
-        //showBackButton: true,
+        user: _currentUser,
+        showSearchButton: false,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -45,9 +140,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const CircleAvatar(
+                    CircleAvatar(
                       radius: 40,
-                      backgroundColor: Colors.blue,
+                      backgroundColor: Colors.green, // Changé en vert
                       child: Icon(Iconsax.user, size: 40, color: Colors.white),
                     ),
                     const SizedBox(width: 16),
@@ -56,25 +151,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'John Doe',
+                            _userData['fullName'] ??
+                                FirebaseAuth
+                                    .instance
+                                    .currentUser
+                                    ?.displayName ??
+                                'Utilisateur',
                             style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'john.doe@example.com',
+                            _user?.email ?? 'john.doe@example.com',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
                             icon: const Icon(Iconsax.edit, size: 16),
                             label: const Text('Modifier le profil'),
-                            onPressed: () => _navigateTo('/profile-edit'),
+                            onPressed:
+                                () => Navigator.pushNamed(
+                                  context,
+                                  '/profile-edit',
+                                ),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: AdaptiveDrawer.primaryColor,
-                              side: BorderSide(
-                                color: AdaptiveDrawer.primaryColor,
-                              ),
+                              foregroundColor: Colors.green, // Couleur verte
+                              side: const BorderSide(color: Colors.green),
                             ),
                           ),
                         ],
@@ -92,77 +194,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'Mode sombre',
               value: _darkMode,
               icon: Iconsax.moon,
-              onChanged: (value) => setState(() => _darkMode = value),
+              onChanged: _changeThemeMode,
             ),
             _buildSettingDropdown(
               title: 'Langue',
               value: _language,
               icon: Iconsax.language_circle,
               items: const ['Français', 'Anglais', 'Espagnol', 'Arabe'],
-              onChanged: (value) => setState(() => _language = value!),
+              onChanged: _changeLanguage,
             ),
             _buildSettingDropdown(
               title: 'Couleur du thème',
               value: _themeColor,
               icon: Iconsax.colorfilter,
               items: const ['Vert', 'Bleu', 'Violet', 'Rouge', 'Orange'],
-              onChanged: (value) => setState(() => _themeColor = value!),
+              onChanged: _changeThemeColor,
             ),
             _buildSettingSwitch(
               title: 'Notifications',
               value: _notificationsEnabled,
               icon: Iconsax.notification,
-              onChanged:
-                  (value) => setState(() => _notificationsEnabled = value),
+              onChanged: _toggleNotifications,
             ),
             const SizedBox(height: 24),
 
             // Security Settings
             _buildSectionHeader('SÉCURITÉ'),
-            _buildSettingSwitch(
-              title: 'Authentification biométrique',
-              value: _biometricAuth,
-              icon: Iconsax.finger_cricle,
-              onChanged: (value) => setState(() => _biometricAuth = value),
-            ),
             _buildSettingTile(
               title: 'Changer le mot de passe',
               icon: Iconsax.lock,
-              onTap: () => _navigateTo('/change-password'),
-            ),
-            _buildSettingTile(
-              title: 'Authentification à deux facteurs',
-              icon: Iconsax.shield,
-              onTap: () => _navigateTo('/two-factor-auth'),
-            ),
-            const SizedBox(height: 24),
-
-            // Help & Support
-            _buildSectionHeader('AIDE & SUPPORT'),
-            _buildSettingTile(
-              title: 'Centre d\'aide',
-              icon: Iconsax.message_question,
-              onTap: () => _navigateTo('/help-center'),
-            ),
-            _buildSettingTile(
-              title: 'Nous contacter',
-              icon: Iconsax.message,
-              onTap: () => _navigateTo('/contact-us'),
-            ),
-            _buildSettingTile(
-              title: 'Conditions d\'utilisation',
-              icon: Iconsax.document,
-              onTap: () => _navigateTo('/terms'),
-            ),
-            _buildSettingTile(
-              title: 'Politique de confidentialité',
-              icon: Iconsax.lock,
-              onTap: () => _navigateTo('/privacy'),
+              onTap: _changePassword,
             ),
             const SizedBox(height: 24),
 
             // Logout Button
-            _buildLogoutButton(),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Iconsax.logout),
+                label: const Text('Déconnexion'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _confirmLogout,
+              ),
+            ),
           ],
         ),
       ),
@@ -195,10 +276,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AdaptiveDrawer.primaryColor.withOpacity(0.1),
+          color: Colors.green.withOpacity(0.1), // Changé en vert
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: AdaptiveDrawer.primaryColor),
+        child: Icon(icon, color: Colors.green), // Changé en vert
       ),
       title: Text(title),
       trailing: const Icon(Iconsax.arrow_right_3),
@@ -218,10 +299,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AdaptiveDrawer.primaryColor.withOpacity(0.1),
+          color: Colors.green.withOpacity(0.1), // Changé en vert
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: AdaptiveDrawer.primaryColor),
+        child: Icon(icon, color: Colors.green), // Changé en vert
       ),
       title: Text(title),
       value: value,
@@ -242,10 +323,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AdaptiveDrawer.primaryColor.withOpacity(0.1),
+          color: Colors.green.withOpacity(0.1), // Changé en vert
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: AdaptiveDrawer.primaryColor),
+        child: Icon(icon, color: Colors.green), // Changé en vert
       ),
       title: Text(title),
       trailing: DropdownButton<String>(
@@ -257,54 +338,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }).toList(),
         onChanged: onChanged,
       ),
-    );
-  }
-
-  Widget _buildLogoutButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        icon: const Icon(Iconsax.logout),
-        label: const Text('Déconnexion'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.red,
-          side: const BorderSide(color: Colors.red),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        onPressed: _confirmLogout,
-      ),
-    );
-  }
-
-  void _navigateTo(String route) {
-    Navigator.pushNamed(context, route);
-  }
-
-  void _confirmLogout() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Déconnexion'),
-            content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                onPressed: () {
-                  // TODO: Implement logout
-                  Navigator.popUntil(context, ModalRoute.withName('/login'));
-                },
-                child: const Text('Déconnexion'),
-              ),
-            ],
-          ),
     );
   }
 }

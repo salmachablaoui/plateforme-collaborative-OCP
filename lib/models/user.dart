@@ -73,6 +73,10 @@ class User {
   bool get isEmpty => uid.isEmpty;
   bool get isNotEmpty => !isEmpty;
 
+  get displayName => null;
+
+  get photoURL => null;
+
   // Copie avec modifications
   User copyWith({
     String? uid,

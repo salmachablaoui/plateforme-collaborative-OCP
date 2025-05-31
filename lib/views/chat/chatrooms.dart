@@ -3,25 +3,28 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:app_stage/views/shared/adaptive_drawer.dart';
-import 'package:app_stage/views/shared/custom_app_bar.dart';
 import 'package:intl/intl.dart';
-import 'package:app_stage/views/chat/chatroom_page.dart';
+import 'chatroom_page.dart';
+import 'package:app_stage/views/shared/custom_app_bar.dart';
+import 'package:app_stage/views/shared/adaptive_drawer.dart';
+import 'package:app_stage/views/shared/adaptive_scaffold.dart';
 
 class ChatroomsScreen extends StatefulWidget {
   const ChatroomsScreen({Key? key}) : super(key: key);
 
   @override
-  State<ChatroomsScreen> createState() => _UltimateChatroomsScreenState();
+  State<ChatroomsScreen> createState() => _ChatroomsScreenState();
 }
 
-class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
+class _ChatroomsScreenState extends State<ChatroomsScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final User? _user = FirebaseAuth.instance.currentUser;
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String? _selectedChatroomId;
+  int _currentFilterIndex = 0;
+  bool _showFriendsList = false;
 
   @override
   void initState() {
@@ -65,20 +68,16 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
         title: 'Chatrooms',
         scaffoldKey: _scaffoldKey,
         user: _user,
+        showSearchButton: true,
+        showNotifications: true,
       ),
       body: isDesktop ? _buildDesktopLayout() : _buildMobileLayout(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateChatroomDialog(context),
-        backgroundColor: Colors.green,
-        child: const Icon(Iconsax.add, color: Colors.white),
-      ),
     );
   }
 
   Widget _buildDesktopLayout() {
     return Row(
       children: [
-        // Partie liste des chatrooms (350px de largeur)
         Container(
           width: 350,
           decoration: BoxDecoration(
@@ -104,28 +103,25 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                           setState(() => _searchQuery = value.toLowerCase()),
                 ),
               ),
-              Expanded(child: _buildChatroomList()),
+              _buildFilterTabs(),
+              Expanded(
+                child:
+                    _showFriendsList
+                        ? _buildFriendsList()
+                        : _buildChatroomList(),
+              ),
+              _buildActionButtons(),
             ],
           ),
         ),
-        // Partie conversation
         Expanded(
           child:
               _selectedChatroomId != null
-                  ? ChatroomPage(chatroomId: _selectedChatroomId!)
-                  : const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Iconsax.message, size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
-                          'Sélectionnez une conversation',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ? ChatroomPage(
+                    chatroomId: _selectedChatroomId!,
+                    onDelete: _handleChatroomDeletion,
+                  )
+                  : _buildEmptyConversationView(),
         ),
       ],
     );
@@ -139,7 +135,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Rechercher des chatrooms...',
+              hintText: 'Rechercher...',
               prefixIcon: const Icon(Iconsax.search_normal),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -151,8 +147,141 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                 (value) => setState(() => _searchQuery = value.toLowerCase()),
           ),
         ),
-        Expanded(child: _buildChatroomList()),
+        _buildFilterTabs(),
+        Expanded(
+          child: _showFriendsList ? _buildFriendsList() : _buildChatroomList(),
+        ),
+        _buildActionButtons(),
       ],
+    );
+  }
+
+  Widget _buildEmptyConversationView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Iconsax.message, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          Text(
+            'Sélectionnez une conversation',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterTabs() {
+    const filters = ['Tous', 'Favoris', 'Groupes', 'Non lus'];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      height: 50,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        itemBuilder: (context, index) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ChoiceChip(
+              label: Text(filters[index]),
+              selected: _currentFilterIndex == index,
+              onSelected: (selected) {
+                setState(() {
+                  _currentFilterIndex = selected ? index : 0;
+                  _showFriendsList = false;
+                });
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              icon: const Icon(Iconsax.message_add, size: 20),
+              label: const Text('Discussion'),
+              onPressed: () => setState(() => _showFriendsList = true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ElevatedButton.icon(
+              icon: const Icon(Iconsax.add, size: 20),
+              label: const Text('Groupe'),
+              onPressed: _showCreateChatroomDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFriendsList() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _getFriendsList(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text('Erreur: ${snapshot.error}'));
+        }
+
+        final friends = snapshot.data!;
+
+        return friends.isEmpty
+            ? const Center(child: Text('Aucun ami disponible'))
+            : ListView.builder(
+              itemCount: friends.length,
+              itemBuilder: (context, index) {
+                final friend = friends[index];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage:
+                        friend['photoUrl'] != null
+                            ? CachedNetworkImageProvider(friend['photoUrl'])
+                            : null,
+                    child:
+                        friend['photoUrl'] == null
+                            ? Text(_getInitials(friend['fullName']))
+                            : null,
+                  ),
+                  title: Text(friend['fullName']),
+                  trailing: IconButton(
+                    icon: const Icon(Iconsax.message),
+                    onPressed: () => _createPrivateChat(friend['id']),
+                  ),
+                  onTap: () => _createPrivateChat(friend['id']),
+                );
+              },
+            );
+      },
     );
   }
 
@@ -172,34 +301,51 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
           return Center(child: Text('Erreur: ${snapshot.error}'));
         }
 
-        final chatrooms =
-            snapshot.data!.docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return data['name'].toString().toLowerCase().contains(
-                _searchQuery,
-              );
-            }).toList();
+        final filteredChatrooms = _filterChatrooms(snapshot.data!.docs);
 
-        if (chatrooms.isEmpty) {
-          return _buildEmptyState();
-        }
-
-        final pinnedChatrooms =
-            chatrooms.where((doc) => doc['isPinned'] == true).toList();
-        final recentChatrooms =
-            chatrooms.where((doc) => doc['isPinned'] != true).toList();
-
-        return ListView(
-          children: [
-            if (pinnedChatrooms.isNotEmpty) ...[
-              _buildSectionHeader('ÉPINGLÉS', Iconsax.location_add),
-              ...pinnedChatrooms.map((doc) => _buildChatroomItem(doc)).toList(),
-            ],
-            _buildSectionHeader('RÉCENTS', Iconsax.clock),
-            ...recentChatrooms.map((doc) => _buildChatroomItem(doc)).toList(),
-          ],
-        );
+        return filteredChatrooms.isEmpty
+            ? _buildEmptyState()
+            : _buildChatroomListView(filteredChatrooms);
       },
+    );
+  }
+
+  List<DocumentSnapshot> _filterChatrooms(List<DocumentSnapshot> docs) {
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      if (!data['name'].toString().toLowerCase().contains(_searchQuery)) {
+        return false;
+      }
+
+      switch (_currentFilterIndex) {
+        case 1:
+          return data['isPinned'] == true;
+        case 2:
+          return (data['participants'] as List).length > 2;
+        case 3:
+          return (data['unreadCounts']?[_user?.uid] ?? 0) > 0;
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  Widget _buildChatroomListView(List<DocumentSnapshot> chatrooms) {
+    final pinnedChatrooms =
+        chatrooms.where((doc) => doc['isPinned'] == true).toList();
+    final recentChatrooms =
+        chatrooms.where((doc) => doc['isPinned'] != true).toList();
+
+    return ListView(
+      children: [
+        if (pinnedChatrooms.isNotEmpty) ...[
+          _buildSectionHeader('ÉPINGLÉS', Iconsax.location_add),
+          ...pinnedChatrooms.map((doc) => _buildChatroomItem(doc)),
+        ],
+        _buildSectionHeader('RÉCENTS', Iconsax.clock),
+        ...recentChatrooms.map((doc) => _buildChatroomItem(doc)),
+      ],
     );
   }
 
@@ -228,6 +374,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
     final unreadCount = data['unreadCounts']?[_user?.uid] ?? 0;
     final lastMessage = data['lastMessage'] ?? '';
     final lastMessageSenderId = data['lastMessageSender'];
+    final isGroup = (data['participants'] as List).length > 2;
 
     return FutureBuilder(
       future: _getLastMessageSenderName(lastMessageSenderId),
@@ -251,7 +398,9 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
               ),
               subtitle: Text(
                 lastMessage.isNotEmpty
-                    ? '$senderName: $lastMessage'
+                    ? isGroup
+                        ? '$senderName: $lastMessage'
+                        : lastMessage
                     : 'Aucun message',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -261,69 +410,56 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                   color: unreadCount > 0 ? Colors.black : Colors.grey,
                 ),
               ),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    _formatTimestamp(data['lastMessageTime']),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                      fontWeight:
-                          unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  if (unreadCount > 0)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.red[600],
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.red.withOpacity(0.3),
-                            blurRadius: 4,
-                            spreadRadius: 1,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        unreadCount > 9 ? '9+' : unreadCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                ],
+              trailing: _buildChatroomTrailing(
+                unreadCount,
+                data['lastMessageTime'],
               ),
-              onTap: () async {
-                await _firestore.collection('chatrooms').doc(doc.id).update({
-                  'unreadCounts.${_user?.uid}': 0,
-                });
-
-                if (MediaQuery.of(context).size.width > 600) {
-                  setState(() {
-                    _selectedChatroomId = doc.id;
-                  });
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatroomPage(chatroomId: doc.id),
-                    ),
-                  ).then((_) {
-                    if (mounted) setState(() {});
-                  });
-                }
-              },
+              onTap: () => _openChatroom(doc),
               onLongPress: () => _showChatroomOptions(doc),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildChatroomTrailing(int unreadCount, dynamic timestamp) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          _formatTimestamp(timestamp),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+            fontWeight: unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        if (unreadCount > 0)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.red[600],
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.3),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: Text(
+              unreadCount > 9 ? '9+' : unreadCount.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -398,7 +534,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
           const SizedBox(height: 16),
           if (_searchQuery.isEmpty)
             ElevatedButton(
-              onPressed: () => _showCreateChatroomDialog(context),
+              onPressed: _showCreateChatroomDialog,
               child: const Text('Créer une chatroom'),
             ),
         ],
@@ -406,63 +542,37 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
     );
   }
 
-  Future<String> _getLastMessageSenderName(String? userId) async {
-    if (userId == null) return 'Utilisateur';
-    final doc = await _firestore.collection('users').doc(userId).get();
-    return doc['fullName'] ?? 'Utilisateur';
-  }
+  Future<void> _openChatroom(DocumentSnapshot doc) async {
+    await _firestore.collection('chatrooms').doc(doc.id).update({
+      'unreadCounts.${_user?.uid}': 0,
+    });
 
-  Future<List<Map<String, dynamic>>> _getParticipantsInfo(
-    List<dynamic> participantIds,
-  ) async {
-    final friends =
-        await _firestore
-            .collection('users')
-            .where('uid', whereIn: participantIds.whereType<String>().toList())
-            .get();
-
-    return friends.docs.map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      return {
-        'id': doc.id,
-        'fullName': data['fullName'] ?? 'Utilisateur',
-        'photoUrl': data['photoUrl'],
-        'initials': _getInitials(data['fullName'] ?? 'UU'),
-      };
-    }).toList();
-  }
-
-  String _getInitials(String fullName) {
-    return fullName
-        .split(' ')
-        .map((e) => e.isNotEmpty ? e[0] : '')
-        .take(2)
-        .join('')
-        .toUpperCase();
-  }
-
-  String _formatTimestamp(dynamic timestamp) {
-    if (timestamp == null) return '';
-    if (timestamp is! Timestamp) return timestamp.toString();
-
-    final date = timestamp.toDate();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    if (date.isAfter(today)) {
-      return DateFormat.Hm().format(date);
-    } else if (date.isAfter(yesterday)) {
-      return 'Hier';
+    if (MediaQuery.of(context).size.width > 600) {
+      setState(() => _selectedChatroomId = doc.id);
     } else {
-      return DateFormat('dd/MM').format(date);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ChatroomPage(
+                chatroomId: doc.id,
+                onDelete: _handleChatroomDeletion,
+              ),
+        ),
+      );
+      if (mounted) setState(() {});
     }
+  }
+
+  void _handleChatroomDeletion() {
+    setState(() => _selectedChatroomId = null);
   }
 
   void _showChatroomOptions(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     final isPinned = data['isPinned'] ?? false;
     final isCreator = data['createdBy'] == _user?.uid;
+    final isGroup = (data['participants'] as List).length > 2;
 
     showModalBottomSheet(
       context: context,
@@ -500,7 +610,9 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
               ],
               ListTile(
                 leading: const Icon(Iconsax.profile_delete),
-                title: const Text('Quitter la chatroom'),
+                title: Text(
+                  isGroup ? 'Quitter le groupe' : 'Supprimer la discussion',
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _leaveChatroom(doc.id, isCreator: isCreator);
@@ -511,61 +623,8 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
     );
   }
 
-  void _togglePinChatroom(String chatroomId, bool pin) {
-    _firestore.collection('chatrooms').doc(chatroomId).update({
-      'isPinned': pin,
-    });
-  }
-
-  void _showEditChatroomNameDialog(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final nameController = TextEditingController(text: data['name']);
-    final formKey = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Modifier le nom'),
-            content: Form(
-              key: formKey,
-              child: TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nouveau nom',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer un nom';
-                  }
-                  return null;
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () {
-                  if (formKey.currentState!.validate()) {
-                    _firestore.collection('chatrooms').doc(doc.id).update({
-                      'name': nameController.text.trim(),
-                    });
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text('Enregistrer'),
-              ),
-            ],
-          ),
-    );
-  }
-
-  void _deleteChatroom(String chatroomId) {
-    showDialog(
+  Future<void> _deleteChatroom(String chatroomId) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder:
           (context) => AlertDialog(
@@ -575,24 +634,11 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(context, false),
                 child: const Text('Annuler'),
               ),
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _firestore.collection('chatrooms').doc(chatroomId).delete();
-                  _firestore
-                      .collection('chatrooms')
-                      .doc(chatroomId)
-                      .collection('messages')
-                      .get()
-                      .then((snapshot) {
-                        for (var doc in snapshot.docs) {
-                          doc.reference.delete();
-                        }
-                      });
-                },
+                onPressed: () => Navigator.pop(context, true),
                 child: const Text(
                   'Supprimer',
                   style: TextStyle(color: Colors.red),
@@ -601,46 +647,171 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
             ],
           ),
     );
+
+    if (confirmed == true) {
+      await _firestore.collection('chatrooms').doc(chatroomId).delete();
+
+      // Delete all associated messages
+      final messages =
+          await _firestore
+              .collection('chatrooms')
+              .doc(chatroomId)
+              .collection('messages')
+              .get();
+
+      for (var doc in messages.docs) {
+        await doc.reference.delete();
+      }
+
+      if (mounted) {
+        setState(() {
+          if (_selectedChatroomId == chatroomId) {
+            _selectedChatroomId = null;
+          }
+        });
+      }
+    }
   }
 
-  void _leaveChatroom(String chatroomId, {required bool isCreator}) {
-    showDialog(
+  Future<void> _leaveChatroom(
+    String chatroomId, {
+    required bool isCreator,
+  }) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Quitter la chatroom'),
+            title: Text(
+              isCreator ? 'Supprimer la chatroom' : 'Quitter la chatroom',
+            ),
             content: Text(
               isCreator
-                  ? 'Vous êtes le créateur. Si vous quittez, la chatroom sera supprimée.'
+                  ? 'Vous êtes le créateur. Voulez-vous vraiment supprimer cette chatroom ?'
                   : 'Voulez-vous vraiment quitter cette chatroom ?',
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(context, false),
                 child: const Text('Annuler'),
               ),
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  if (isCreator) {
-                    _deleteChatroom(chatroomId);
-                  } else {
-                    _firestore.collection('chatrooms').doc(chatroomId).update({
-                      'participants': FieldValue.arrayRemove([_user?.uid]),
-                    });
-                  }
-                },
-                child: const Text(
-                  'Quitter',
-                  style: TextStyle(color: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(
+                  isCreator ? 'Supprimer' : 'Quitter',
+                  style: const TextStyle(color: Colors.red),
                 ),
               ),
             ],
           ),
     );
+
+    if (confirmed == true) {
+      if (isCreator) {
+        await _deleteChatroom(chatroomId);
+      } else {
+        await _firestore.collection('chatrooms').doc(chatroomId).update({
+          'participants': FieldValue.arrayRemove([_user?.uid]),
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          if (_selectedChatroomId == chatroomId) {
+            _selectedChatroomId = null;
+          }
+        });
+      }
+    }
   }
 
-  void _showCreateChatroomDialog(BuildContext context) {
+  Future<void> _createPrivateChat(String friendId) async {
+    try {
+      // Check if chatroom already exists
+      final existingChats =
+          await _firestore
+              .collection('chatrooms')
+              .where('participants', arrayContains: _user?.uid)
+              .get();
+
+      for (var doc in existingChats.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final participants = List<String>.from(data['participants']);
+        if (participants.length == 2 && participants.contains(friendId)) {
+          _openExistingChatroom(doc);
+          return;
+        }
+      }
+
+      // Create new private chat
+      final participants = [_user?.uid, friendId];
+      final friendDoc =
+          await _firestore.collection('users').doc(friendId).get();
+      final friendName = friendDoc['fullName'] ?? 'Utilisateur';
+
+      final newChat = await _firestore.collection('chatrooms').add({
+        'name': 'Chat avec $friendName',
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': _user?.uid,
+        'isPinned': false,
+        'lastMessage': '',
+        'lastMessageSender': null,
+        'lastMessageTime': null,
+        'participants': participants,
+        'isGroup': false,
+        'unreadCounts': {for (var uid in participants) uid: 0},
+      });
+
+      _openNewChatroom(newChat.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
+    }
+  }
+
+  void _openExistingChatroom(DocumentSnapshot doc) {
+    if (MediaQuery.of(context).size.width > 600) {
+      setState(() {
+        _selectedChatroomId = doc.id;
+        _showFriendsList = false;
+      });
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ChatroomPage(
+                chatroomId: doc.id,
+                onDelete: _handleChatroomDeletion,
+              ),
+        ),
+      );
+    }
+  }
+
+  void _openNewChatroom(String chatroomId) {
+    if (MediaQuery.of(context).size.width > 600) {
+      setState(() {
+        _selectedChatroomId = chatroomId;
+        _showFriendsList = false;
+      });
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ChatroomPage(
+                chatroomId: chatroomId,
+                onDelete: _handleChatroomDeletion,
+              ),
+        ),
+      );
+    }
+  }
+
+  void _showCreateChatroomDialog() {
     final nameController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     List<Map<String, dynamic>> friends = [];
@@ -661,7 +832,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'Nouvelle Chatroom',
+                      'Nouveau Groupe',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -673,7 +844,7 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                       child: TextFormField(
                         controller: nameController,
                         decoration: InputDecoration(
-                          labelText: 'Nom de la chatroom',
+                          labelText: 'Nom du groupe',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -795,21 +966,25 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                                   _user?.uid,
                                 ];
 
-                                await _firestore.collection('chatrooms').add({
-                                  'name': nameController.text.trim(),
-                                  'createdAt': FieldValue.serverTimestamp(),
-                                  'createdBy': _user?.uid,
-                                  'isPinned': false,
-                                  'lastMessage': '',
-                                  'lastMessageSender': null,
-                                  'lastMessageTime': null,
-                                  'participants': participants,
-                                  'unreadCounts': {
-                                    for (var uid in participants) uid: 0,
-                                  },
-                                });
+                                final newChat = await _firestore
+                                    .collection('chatrooms')
+                                    .add({
+                                      'name': nameController.text.trim(),
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                      'createdBy': _user?.uid,
+                                      'isPinned': false,
+                                      'lastMessage': '',
+                                      'lastMessageSender': null,
+                                      'lastMessageTime': null,
+                                      'participants': participants,
+                                      'isGroup': true,
+                                      'unreadCounts': {
+                                        for (var uid in participants) uid: 0,
+                                      },
+                                    });
 
                                 Navigator.pop(context);
+                                _openNewChatroom(newChat.id);
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text('Erreur: $e')),
@@ -819,14 +994,12 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: const Text(
-                            'Créer',
-                            style: TextStyle(color: Colors.white),
-                          ),
+                          child: const Text('Créer'),
                         ),
                       ],
                     ),
@@ -864,7 +1037,114 @@ class _UltimateChatroomsScreenState extends State<ChatroomsScreen> {
         'id': doc.id,
         'fullName': data['fullName'] ?? 'Utilisateur',
         'photoUrl': data['photoUrl'],
+        'initials': _getInitials(data['fullName'] ?? 'UU'),
       };
     }).toList();
+  }
+
+  String _getInitials(String fullName) {
+    return fullName
+        .split(' ')
+        .map((e) => e.isNotEmpty ? e[0] : '')
+        .take(2)
+        .join('')
+        .toUpperCase();
+  }
+
+  Future<String> _getLastMessageSenderName(String? userId) async {
+    if (userId == null) return 'Utilisateur';
+    final doc = await _firestore.collection('users').doc(userId).get();
+    return doc['fullName'] ?? 'Utilisateur';
+  }
+
+  Future<List<Map<String, dynamic>>> _getParticipantsInfo(
+    List<dynamic> participantIds,
+  ) async {
+    final friends =
+        await _firestore
+            .collection('users')
+            .where('uid', whereIn: participantIds.whereType<String>().toList())
+            .get();
+
+    return friends.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return {
+        'id': doc.id,
+        'fullName': data['fullName'] ?? 'Utilisateur',
+        'photoUrl': data['photoUrl'],
+        'initials': _getInitials(data['fullName'] ?? 'UU'),
+      };
+    }).toList();
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return '';
+    if (timestamp is! Timestamp) return timestamp.toString();
+
+    final date = timestamp.toDate();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (date.isAfter(today)) {
+      return DateFormat.Hm().format(date);
+    } else if (date.isAfter(yesterday)) {
+      return 'Hier';
+    } else {
+      return DateFormat('dd/MM').format(date);
+    }
+  }
+
+  void _togglePinChatroom(String chatroomId, bool pin) {
+    _firestore.collection('chatrooms').doc(chatroomId).update({
+      'isPinned': pin,
+    });
+  }
+
+  void _showEditChatroomNameDialog(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final nameController = TextEditingController(text: data['name']);
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Modifier le nom'),
+            content: Form(
+              key: formKey,
+              child: TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nouveau nom',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Veuillez entrer un nom';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    _firestore.collection('chatrooms').doc(doc.id).update({
+                      'name': nameController.text.trim(),
+                    });
+                    Navigator.pop(context);
+                  }
+                },
+                child: const Text('Enregistrer'),
+              ),
+            ],
+          ),
+    );
   }
 }

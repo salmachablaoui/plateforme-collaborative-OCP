@@ -189,6 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
+
                         if (_errorMessage != null) _buildErrorMessage(),
                         if (_successMessage != null) _buildSuccessMessage(),
                         const SizedBox(height: _defaultPadding * 1.5),
@@ -227,14 +228,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: _defaultPadding),
-                        // Nouvelle rangée avec les deux boutons
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             TextButton(
-                              onPressed: () {
-                                Navigator.pushNamed(context, '/register');
-                              },
+                              onPressed:
+                                  () =>
+                                      Navigator.pushNamed(context, '/register'),
                               child: Text(
                                 'Créer un compte',
                                 style: TextStyle(
@@ -252,8 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             TextButton(
-                              onPressed:
-                                  _isLoading ? null : () => _resetPassword(),
+                              onPressed: _isLoading ? null : _resetPassword,
                               child: Text(
                                 'Mot de passe oublié ?',
                                 style: TextStyle(
@@ -287,6 +286,16 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                Image.asset(
+                  'assets/images/ocp_logo.jpg',
+                  width: 120,
+                  height: 120,
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint("Erreur de chargement d'image: $error");
+                    return Icon(Icons.business, size: 80, color: Colors.white);
+                  },
+                ),
+                const SizedBox(height: _defaultPadding * 1.5),
                 Text(
                   'OCP Connect',
                   style: TextStyle(
@@ -305,12 +314,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: _defaultPadding * 2),
-                Icon(
-                  Icons.lock_outline,
-                  size: 80,
-                  color: _whiteColor.withOpacity(0.8),
-                ),
               ],
             ),
           ),
@@ -322,6 +325,16 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildMobileHeader() {
     return Column(
       children: [
+        Image.asset(
+          'assets/images/ocp_logo.jpg',
+          width: 120,
+          height: 120,
+          errorBuilder: (context, error, stackTrace) {
+            debugPrint("Erreur de chargement d'image: $error");
+            return Icon(Icons.business, size: 80, color: Colors.white);
+          },
+        ),
+        const SizedBox(height: _defaultPadding),
         Text(
           'OCP Connect',
           style: TextStyle(
@@ -337,6 +350,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // ... (keep all other existing methods exactly as they were)
   Widget _buildTitleSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

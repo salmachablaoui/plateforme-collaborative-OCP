@@ -16,6 +16,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    aaptOptions {
+        noCompress.addAll(listOf("jpg", "jpeg", "png")) // <-- Ajoutez cette ligne
+    }
+
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
