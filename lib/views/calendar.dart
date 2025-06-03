@@ -4,18 +4,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:app_stage/views/shared/adaptive_drawer.dart';
 import 'package:app_stage/views/shared/custom_app_bar.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({Key? key}) : super(key: key);
 
   @override
-  State<CalendarScreen> createState() => _CollaborativeCalendarScreenState();
+  State<CalendarScreen> createState() => _CalendarScreenState();
 }
 
-class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
+class _CalendarScreenState extends State<CalendarScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -23,7 +23,7 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
   late DateTime _focusedDay;
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
-  Map<DateTime, List<dynamic>> _events = {};
+  Map<DateTime, List<CalendarEvent>> _events = {};
   bool _isLoading = true;
 
   @override
@@ -44,40 +44,59 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
             final Map<DateTime, List<CalendarEvent>> newEvents = {};
 
             for (final doc in snapshot.docs) {
-              final event = CalendarEvent.fromFirestore(doc);
-              final date = DateTime(
-                event.date.year,
-                event.date.month,
-                event.date.day,
-              );
-
-              newEvents[date] ??= [];
-              newEvents[date]!.add(event);
+              try {
+                final event = CalendarEvent.fromFirestore(doc);
+                final date = DateTime(
+                  event.date.year,
+                  event.date.month,
+                  event.date.day,
+                );
+                newEvents.putIfAbsent(date, () => []).add(event);
+              } catch (e) {
+                debugPrint('Error parsing event: $e');
+              }
             }
 
-            setState(() {
-              _events = newEvents;
-              _isLoading = false;
-            });
+            if (mounted) {
+              setState(() {
+                _events = newEvents;
+                _isLoading = false;
+              });
+            }
           });
     } catch (e) {
-      setState(() => _isLoading = false);
-      _showError('Erreur de chargement: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showError('Erreur de chargement: $e');
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final eventsForSelectedDay =
-        _selectedDay != null ? _events[_selectedDay] ?? [] : [];
+    final List<CalendarEvent> eventsForSelectedDay;
+    if (_selectedDay != null) {
+      eventsForSelectedDay =
+          (_events[DateTime(
+                _selectedDay!.year,
+                _selectedDay!.month,
+                _selectedDay!.day,
+              )]
+              as List<CalendarEvent>?) ??
+          <CalendarEvent>[];
+    } else {
+      eventsForSelectedDay = <CalendarEvent>[];
+    }
 
     final isMobile = MediaQuery.of(context).size.width < 600;
+    final maxWidth = isMobile ? double.infinity : 600.0;
+    final horizontalPadding = isMobile ? 16.0 : 0.0;
 
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AdaptiveDrawer(),
       appBar: CustomAppBar(
-        title: 'Calendrier Collaboratif',
+        title: 'Calendrier',
         scaffoldKey: _scaffoldKey,
         user: _currentUser,
         showSearchButton: false,
@@ -85,103 +104,145 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
       body:
           _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : Column(
-                children: [
-                  Card(
-                    margin: EdgeInsets.all(isMobile ? 8 : 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TableCalendar(
-                      firstDay: DateTime.now().subtract(
-                        const Duration(days: 365),
-                      ),
-                      lastDay: DateTime.now().add(const Duration(days: 365)),
-                      focusedDay: _focusedDay,
-                      selectedDayPredicate:
-                          (day) => isSameDay(_selectedDay, day),
-                      calendarFormat: _calendarFormat,
-                      onFormatChanged: (format) {
-                        setState(() => _calendarFormat = format);
-                      },
-                      onDaySelected: (selectedDay, focusedDay) {
-                        setState(() {
-                          _selectedDay = selectedDay;
-                          _focusedDay = focusedDay;
-                        });
-                      },
-                      onPageChanged: (focusedDay) {
-                        _focusedDay = focusedDay;
-                      },
-                      calendarStyle: CalendarStyle(
-                        selectedDecoration: BoxDecoration(
-                          color: AdaptiveDrawer.primaryColor,
-                          shape: BoxShape.circle,
-                        ),
-                        todayDecoration: BoxDecoration(
-                          color: AdaptiveDrawer.primaryColor.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        markerDecoration: BoxDecoration(
-                          color: AdaptiveDrawer.primaryColor,
-                          shape: BoxShape.circle,
-                        ),
-                        markersAlignment: Alignment.bottomCenter,
-                        outsideDaysVisible: false,
-                      ),
-                      headerStyle: HeaderStyle(
-                        formatButtonVisible: true,
-                        titleCentered: true,
-                        formatButtonDecoration: BoxDecoration(
-                          border: Border.all(
-                            color: AdaptiveDrawer.primaryColor,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        formatButtonTextStyle: TextStyle(
-                          color: AdaptiveDrawer.primaryColor,
-                        ),
-                        leftChevronIcon: const Icon(Iconsax.arrow_left_2),
-                        rightChevronIcon: const Icon(Iconsax.arrow_right_3),
-                      ),
-                      eventLoader: (day) => _events[day] ?? [],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
+              : Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: Padding(
                     padding: EdgeInsets.symmetric(
-                      horizontal: isMobile ? 12 : 16,
+                      horizontal: horizontalPadding,
                     ),
-                    child: Row(
+                    child: Column(
                       children: [
-                        Text(
-                          'ÉVÉNEMENTS',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade600,
+                        Card(
+                          margin: const EdgeInsets.only(top: 16, bottom: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                          child: TableCalendar<CalendarEvent>(
+                            firstDay: DateTime.now().subtract(
+                              const Duration(days: 365),
+                            ),
+                            lastDay: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                            focusedDay: _focusedDay,
+                            selectedDayPredicate:
+                                (day) => isSameDay(_selectedDay, day),
+                            calendarFormat: _calendarFormat,
+                            onFormatChanged:
+                                (format) =>
+                                    setState(() => _calendarFormat = format),
+                            onDaySelected:
+                                (selectedDay, focusedDay) => setState(() {
+                                  _selectedDay = selectedDay;
+                                  _focusedDay = focusedDay;
+                                }),
+                            onPageChanged:
+                                (focusedDay) => _focusedDay = focusedDay,
+                            eventLoader:
+                                (day) =>
+                                    _events[DateTime(
+                                      day.year,
+                                      day.month,
+                                      day.day,
+                                    )] ??
+                                    [],
+                            calendarBuilders: CalendarBuilders<CalendarEvent>(
+                              markerBuilder: (context, date, events) {
+                                if (events.isNotEmpty) {
+                                  return Positioned(
+                                    right: 1,
+                                    bottom: 1,
+                                    child: Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context).primaryColor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          events.length.toString(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return null;
+                              },
+                            ),
+                            calendarStyle: CalendarStyle(
+                              selectedDecoration: BoxDecoration(
+                                color: Theme.of(context).primaryColor,
+                                shape: BoxShape.circle,
+                              ),
+                              todayDecoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).primaryColor.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              markerDecoration: BoxDecoration(
+                                color: Theme.of(context).primaryColor,
+                                shape: BoxShape.circle,
+                              ),
+                              markersAlignment: Alignment.bottomCenter,
+                              outsideDaysVisible: false,
+                            ),
+                            headerStyle: HeaderStyle(
+                              formatButtonVisible: true,
+                              titleCentered: true,
+                              formatButtonDecoration: BoxDecoration(
+                                border: Border.all(
+                                  color: Theme.of(context).primaryColor,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              formatButtonTextStyle: TextStyle(
+                                color: Theme.of(context).primaryColor,
+                              ),
+                              leftChevronIcon: const Icon(Iconsax.arrow_left_2),
+                              rightChevronIcon: const Icon(
+                                Iconsax.arrow_right_3,
+                              ),
+                            ),
                           ),
                         ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Text(
+                                'ÉVÉNEMENTS',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(child: _buildEventsList(eventsForSelectedDay)),
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: _buildEventsList(
-                      List<CalendarEvent>.from(eventsForSelectedDay),
-                      isMobile,
-                    ),
-                  ),
-                ],
+                ),
               ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddEventDialog(),
-        backgroundColor: AdaptiveDrawer.primaryColor,
+        backgroundColor: Theme.of(context).primaryColor,
         child: const Icon(Iconsax.add, color: Colors.white),
       ),
     );
   }
 
-  Widget _buildEventsList(List<CalendarEvent> events, bool isMobile) {
+  Widget _buildEventsList(List<CalendarEvent> events) {
     if (events.isEmpty) {
       return Center(
         child: Column(
@@ -203,7 +264,7 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(isMobile ? 8 : 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: events.length,
       itemBuilder:
           (context, index) => _EventCard(
@@ -219,12 +280,11 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
-    final timeController = TextEditingController(text: '09:00');
+    final timeController = TextEditingController(text: '08:00');
     DateTime selectedDate = _selectedDay ?? DateTime.now();
     Color selectedColor = Colors.blue;
-    List<String> selectedParticipants = [];
+    List<String> selectedParticipants = [_currentUser?.uid ?? ''];
 
-    // Charger la liste des utilisateurs disponibles
     final users = await _firestore.collection('users').get();
 
     await showDialog(
@@ -268,16 +328,13 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                                   final date = await showDatePicker(
                                     context: context,
                                     initialDate: selectedDate,
-                                    firstDate: DateTime.now().subtract(
-                                      const Duration(days: 365),
-                                    ),
+                                    firstDate: DateTime.now(),
                                     lastDate: DateTime.now().add(
                                       const Duration(days: 365),
                                     ),
                                   );
-                                  if (date != null) {
+                                  if (date != null)
                                     setState(() => selectedDate = date);
-                                  }
                                 },
                                 child: Text(
                                   DateFormat('dd/MM/yyyy').format(selectedDate),
@@ -293,7 +350,6 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                                   labelText: 'Heure',
                                   prefixIcon: Icon(Iconsax.clock),
                                 ),
-                                keyboardType: TextInputType.datetime,
                                 validator:
                                     (value) =>
                                         value?.isEmpty ?? true
@@ -308,32 +364,33 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                           value: selectedColor,
                           items:
                               [
-                                Colors.blue,
-                                Colors.green,
-                                Colors.orange,
-                                Colors.purple,
-                                Colors.red,
-                              ].map((color) {
-                                return DropdownMenuItem(
-                                  value: color,
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 16,
-                                        height: 16,
-                                        color: color,
+                                    Colors.blue,
+                                    Colors.green,
+                                    Colors.orange,
+                                    Colors.purple,
+                                    Colors.red,
+                                  ]
+                                  .map(
+                                    (color) => DropdownMenuItem(
+                                      value: color,
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 16,
+                                            height: 16,
+                                            color: color,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(color.toString().split('.')[1]),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(color.toString().split('.')[1]),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                          onChanged: (color) {
-                            if (color != null) {
-                              setState(() => selectedColor = color);
-                            }
-                          },
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (color) => setState(
+                                () => selectedColor = color ?? Colors.blue,
+                              ),
                           decoration: const InputDecoration(
                             labelText: 'Couleur',
                             prefixIcon: Icon(Iconsax.colorfilter),
@@ -342,53 +399,51 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                         const SizedBox(height: 16),
                         ExpansionTile(
                           title: const Text('Participants'),
-                          children: [
-                            ...users.docs.map((userDoc) {
-                              final userId = userDoc.id;
-                              final userData = userDoc.data();
-                              final isSelected = selectedParticipants.contains(
-                                userId,
-                              );
+                          children:
+                              users.docs.map((userDoc) {
+                                final userId = userDoc.id;
+                                final userData =
+                                    userDoc.data() as Map<String, dynamic>;
+                                final isSelected = selectedParticipants
+                                    .contains(userId);
 
-                              return CheckboxListTile(
-                                value: isSelected,
-                                onChanged: (value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      selectedParticipants.add(userId);
-                                    } else {
-                                      selectedParticipants.remove(userId);
-                                    }
-                                  });
-                                },
-                                title: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage:
-                                          userData['photoUrl'] != null
-                                              ? CachedNetworkImageProvider(
-                                                userData['photoUrl'],
-                                              )
-                                              : null,
-                                      child:
-                                          userData['photoUrl'] == null
-                                              ? Text(
-                                                userData['fullName']?.substring(
-                                                      0,
-                                                      1,
-                                                    ) ??
-                                                    'U',
-                                              )
-                                              : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(userData['fullName'] ?? 'Utilisateur'),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ],
+                                return CheckboxListTile(
+                                  value: isSelected,
+                                  onChanged:
+                                      (value) => setState(() {
+                                        if (value == true) {
+                                          selectedParticipants.add(userId);
+                                        } else {
+                                          selectedParticipants.remove(userId);
+                                        }
+                                      }),
+                                  title: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 16,
+                                        backgroundImage:
+                                            userData['photoUrl'] != null
+                                                ? CachedNetworkImageProvider(
+                                                  userData['photoUrl'],
+                                                )
+                                                : null,
+                                        child:
+                                            userData['photoUrl'] == null
+                                                ? Text(
+                                                  userData['fullName']
+                                                          ?.substring(0, 1) ??
+                                                      'U',
+                                                )
+                                                : null,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        userData['fullName'] ?? 'Utilisateur',
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
                         ),
                       ],
                     ),
@@ -408,16 +463,13 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                           date: selectedDate,
                           time: timeController.text,
                           color: selectedColor,
-                          participants: [
-                            ...selectedParticipants,
-                            _currentUser?.uid ?? '',
-                          ],
+                          participants: selectedParticipants,
                         );
-                        Navigator.pop(context);
+                        if (mounted) Navigator.pop(context);
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AdaptiveDrawer.primaryColor,
+                      backgroundColor: Theme.of(context).primaryColor,
                     ),
                     child: const Text('Créer'),
                   ),
@@ -426,6 +478,46 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
             },
           ),
     );
+  }
+
+  Future<void> _addEvent({
+    required String title,
+    required String description,
+    required DateTime date,
+    required String time,
+    required Color color,
+    required List<String> participants,
+  }) async {
+    try {
+      await _firestore.collection('calendar_events').add({
+        'title': title,
+        'description': description,
+        'date': Timestamp.fromDate(date),
+        'time': time,
+        'color': color.value,
+        'creator': _currentUser?.uid,
+        'participants': participants,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      _showError('Erreur de création: $e');
+    }
+  }
+
+  Future<void> _deleteEvent(CalendarEvent event) async {
+    try {
+      await _firestore.collection('calendar_events').doc(event.id).delete();
+    } catch (e) {
+      _showError('Erreur de suppression: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _showEditEventDialog(CalendarEvent event) async {
@@ -437,10 +529,11 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
     final timeController = TextEditingController(text: event.time);
     DateTime selectedDate = event.date;
     Color selectedColor = event.color;
-    List<String> selectedParticipants = event.participants;
+    List<String> selectedParticipants = List.from(event.participants);
 
-    // Charger la liste des utilisateurs disponibles
     final users = await _firestore.collection('users').get();
+
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -448,7 +541,7 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
           (context) => StatefulBuilder(
             builder: (context, setState) {
               return AlertDialog(
-                title: const Text('Modifier Événement'),
+                title: const Text('Modifier l\'événement'),
                 content: SingleChildScrollView(
                   child: Form(
                     key: formKey,
@@ -483,16 +576,13 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                                   final date = await showDatePicker(
                                     context: context,
                                     initialDate: selectedDate,
-                                    firstDate: DateTime.now().subtract(
-                                      const Duration(days: 365),
-                                    ),
+                                    firstDate: DateTime.now(),
                                     lastDate: DateTime.now().add(
                                       const Duration(days: 365),
                                     ),
                                   );
-                                  if (date != null) {
+                                  if (date != null)
                                     setState(() => selectedDate = date);
-                                  }
                                 },
                                 child: Text(
                                   DateFormat('dd/MM/yyyy').format(selectedDate),
@@ -508,7 +598,6 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                                   labelText: 'Heure',
                                   prefixIcon: Icon(Iconsax.clock),
                                 ),
-                                keyboardType: TextInputType.datetime,
                                 validator:
                                     (value) =>
                                         value?.isEmpty ?? true
@@ -523,32 +612,33 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                           value: selectedColor,
                           items:
                               [
-                                Colors.blue,
-                                Colors.green,
-                                Colors.orange,
-                                Colors.purple,
-                                Colors.red,
-                              ].map((color) {
-                                return DropdownMenuItem(
-                                  value: color,
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 16,
-                                        height: 16,
-                                        color: color,
+                                    Colors.blue,
+                                    Colors.green,
+                                    Colors.orange,
+                                    Colors.purple,
+                                    Colors.red,
+                                  ]
+                                  .map(
+                                    (color) => DropdownMenuItem(
+                                      value: color,
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 16,
+                                            height: 16,
+                                            color: color,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(color.toString().split('.')[1]),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(color.toString().split('.')[1]),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                          onChanged: (color) {
-                            if (color != null) {
-                              setState(() => selectedColor = color);
-                            }
-                          },
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (color) => setState(
+                                () => selectedColor = color ?? Colors.blue,
+                              ),
                           decoration: const InputDecoration(
                             labelText: 'Couleur',
                             prefixIcon: Icon(Iconsax.colorfilter),
@@ -557,53 +647,51 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                         const SizedBox(height: 16),
                         ExpansionTile(
                           title: const Text('Participants'),
-                          children: [
-                            ...users.docs.map((userDoc) {
-                              final userId = userDoc.id;
-                              final userData = userDoc.data();
-                              final isSelected = selectedParticipants.contains(
-                                userId,
-                              );
+                          children:
+                              users.docs.map((userDoc) {
+                                final userId = userDoc.id;
+                                final userData =
+                                    userDoc.data() as Map<String, dynamic>;
+                                final isSelected = selectedParticipants
+                                    .contains(userId);
 
-                              return CheckboxListTile(
-                                value: isSelected,
-                                onChanged: (value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      selectedParticipants.add(userId);
-                                    } else {
-                                      selectedParticipants.remove(userId);
-                                    }
-                                  });
-                                },
-                                title: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage:
-                                          userData['photoUrl'] != null
-                                              ? CachedNetworkImageProvider(
-                                                userData['photoUrl'],
-                                              )
-                                              : null,
-                                      child:
-                                          userData['photoUrl'] == null
-                                              ? Text(
-                                                userData['fullName']?.substring(
-                                                      0,
-                                                      1,
-                                                    ) ??
-                                                    'U',
-                                              )
-                                              : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(userData['fullName'] ?? 'Utilisateur'),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ],
+                                return CheckboxListTile(
+                                  value: isSelected,
+                                  onChanged:
+                                      (value) => setState(() {
+                                        if (value == true) {
+                                          selectedParticipants.add(userId);
+                                        } else {
+                                          selectedParticipants.remove(userId);
+                                        }
+                                      }),
+                                  title: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 16,
+                                        backgroundImage:
+                                            userData['photoUrl'] != null
+                                                ? CachedNetworkImageProvider(
+                                                  userData['photoUrl'],
+                                                )
+                                                : null,
+                                        child:
+                                            userData['photoUrl'] == null
+                                                ? Text(
+                                                  userData['fullName']
+                                                          ?.substring(0, 1) ??
+                                                      'U',
+                                                )
+                                                : null,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        userData['fullName'] ?? 'Utilisateur',
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
                         ),
                       ],
                     ),
@@ -617,89 +705,33 @@ class _CollaborativeCalendarScreenState extends State<CalendarScreen> {
                   ElevatedButton(
                     onPressed: () async {
                       if (formKey.currentState?.validate() ?? false) {
-                        await _updateEvent(
-                          event.id,
-                          title: titleController.text,
-                          description: descriptionController.text,
-                          date: selectedDate,
-                          time: timeController.text,
-                          color: selectedColor,
-                          participants: selectedParticipants,
-                        );
-                        Navigator.pop(context);
+                        try {
+                          await _firestore
+                              .collection('calendar_events')
+                              .doc(event.id)
+                              .update({
+                                'title': titleController.text,
+                                'description': descriptionController.text,
+                                'date': Timestamp.fromDate(selectedDate),
+                                'time': timeController.text,
+                                'color': selectedColor.value,
+                                'participants': selectedParticipants,
+                              });
+                          if (mounted) Navigator.pop(context);
+                        } catch (e) {
+                          _showError('Erreur de modification: $e');
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AdaptiveDrawer.primaryColor,
+                      backgroundColor: Theme.of(context).primaryColor,
                     ),
-                    child: const Text('Enregistrer'),
+                    child: const Text('Modifier'),
                   ),
                 ],
               );
             },
           ),
-    );
-  }
-
-  Future<void> _addEvent({
-    required String title,
-    required String description,
-    required DateTime date,
-    required String time,
-    required Color color,
-    required List<String> participants,
-  }) async {
-    try {
-      await _firestore.collection('calendar_events').add({
-        'title': title,
-        'description': description,
-        'date': Timestamp.fromDate(date),
-        'time': time,
-        'color': color.value,
-        'creator': _currentUser?.uid,
-        'participants': participants,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      _showError('Erreur de création: $e');
-    }
-  }
-
-  Future<void> _updateEvent(
-    String eventId, {
-    required String title,
-    required String description,
-    required DateTime date,
-    required String time,
-    required Color color,
-    required List<String> participants,
-  }) async {
-    try {
-      await _firestore.collection('calendar_events').doc(eventId).update({
-        'title': title,
-        'description': description,
-        'date': Timestamp.fromDate(date),
-        'time': time,
-        'color': color.value,
-        'participants': participants,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      _showError('Erreur de mise à jour: $e');
-    }
-  }
-
-  Future<void> _deleteEvent(CalendarEvent event) async {
-    try {
-      await _firestore.collection('calendar_events').doc(event.id).delete();
-    } catch (e) {
-      _showError('Erreur de suppression: $e');
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 }
@@ -713,6 +745,7 @@ class CalendarEvent {
   final Color color;
   final String creator;
   final List<String> participants;
+  final DateTime createdAt;
 
   CalendarEvent({
     required this.id,
@@ -723,6 +756,7 @@ class CalendarEvent {
     required this.color,
     required this.creator,
     required this.participants,
+    required this.createdAt,
   });
 
   factory CalendarEvent.fromFirestore(DocumentSnapshot doc) {
@@ -736,6 +770,7 @@ class CalendarEvent {
       color: Color(data['color'] ?? Colors.blue.value),
       creator: data['creator'] ?? '',
       participants: List<String>.from(data['participants'] ?? []),
+      createdAt: (data['createdAt'] as Timestamp).toDate(),
     );
   }
 }
@@ -756,11 +791,11 @@ class _EventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCreator = event.creator == currentUserId;
-    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 0,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => _showEventDetails(context),
@@ -831,7 +866,7 @@ class _EventCard extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 12),
-              _buildParticipantsList(isMobile),
+              _buildParticipantsList(),
             ],
           ),
         ),
@@ -839,7 +874,7 @@ class _EventCard extends StatelessWidget {
     );
   }
 
-  Widget _buildParticipantsList(bool isMobile) {
+  Widget _buildParticipantsList() {
     return FutureBuilder<QuerySnapshot>(
       future:
           FirebaseFirestore.instance

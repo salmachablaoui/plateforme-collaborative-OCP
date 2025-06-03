@@ -10,7 +10,7 @@ import 'views/friends.dart';
 import 'views/chat/chatrooms.dart';
 import 'views/calendar.dart';
 import 'views/settings.dart';
-import 'views/notifications.dart';
+import 'views/notificationsview.dart';
 import 'views/shared/adaptive_drawer.dart';
 
 void main() async {

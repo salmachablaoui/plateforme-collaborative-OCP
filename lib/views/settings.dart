@@ -1,8 +1,10 @@
-import 'package:app_stage/views/shared/adaptive_drawer.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_stage/views/shared/adaptive_drawer.dart';
 import 'package:app_stage/views/shared/custom_app_bar.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -19,13 +21,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'Français';
   String _themeColor = 'Vert';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  User? get _currentUser => _user;
   Map<String, dynamic> _userData = {};
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    _loadUserData();
   }
 
   Future<void> _loadPreferences() async {
@@ -36,6 +38,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _themeColor = prefs.getString('themeColor') ?? 'Vert';
       _notificationsEnabled = prefs.getBool('notifications') ?? true;
     });
+  }
+
+  Future<void> _loadUserData() async {
+    if (_user == null) return;
+
+    try {
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_user!.uid)
+              .get();
+
+      if (doc.exists) {
+        setState(() {
+          _userData = doc.data() ?? {};
+        });
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement données utilisateur: $e');
+    }
+  }
+
+  ImageProvider? _getProfileImage() {
+    try {
+      if (_userData['photoBase64']?.isNotEmpty == true) {
+        final base64String = _userData['photoBase64'].split(',').last;
+        return MemoryImage(base64Decode(base64String));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Erreur chargement image: $e');
+      return null;
+    }
   }
 
   Future<void> _savePreference(String key, dynamic value) async {
@@ -117,134 +152,183 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isSmallScreen = screenWidth < 360;
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AdaptiveDrawer(),
       appBar: CustomAppBar(
         title: 'Paramètres',
         scaffoldKey: _scaffoldKey,
-        user: _currentUser,
+        user: _user,
         showSearchButton: false,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Profile Card
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.green, // Changé en vert
-                      child: Icon(Iconsax.user, size: 40, color: Colors.white),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _userData['fullName'] ??
-                                FirebaseAuth
-                                    .instance
-                                    .currentUser
-                                    ?.displayName ??
-                                'Utilisateur',
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _user?.email ?? 'john.doe@example.com',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            icon: const Icon(Iconsax.edit, size: 16),
-                            label: const Text('Modifier le profil'),
-                            onPressed:
-                                () => Navigator.pushNamed(
-                                  context,
-                                  '/profile-edit',
-                                ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.green, // Couleur verte
-                              side: const BorderSide(color: Colors.green),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 600, minHeight: screenHeight),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 12 : 16,
+              vertical: 12,
             ),
-            const SizedBox(height: 24),
-
-            // App Settings
-            _buildSectionHeader('PRÉFÉRENCES DE L\'APPLICATION'),
-            _buildSettingSwitch(
-              title: 'Mode sombre',
-              value: _darkMode,
-              icon: Iconsax.moon,
-              onChanged: _changeThemeMode,
-            ),
-            _buildSettingDropdown(
-              title: 'Langue',
-              value: _language,
-              icon: Iconsax.language_circle,
-              items: const ['Français', 'Anglais', 'Espagnol', 'Arabe'],
-              onChanged: _changeLanguage,
-            ),
-            _buildSettingDropdown(
-              title: 'Couleur du thème',
-              value: _themeColor,
-              icon: Iconsax.colorfilter,
-              items: const ['Vert', 'Bleu', 'Violet', 'Rouge', 'Orange'],
-              onChanged: _changeThemeColor,
-            ),
-            _buildSettingSwitch(
-              title: 'Notifications',
-              value: _notificationsEnabled,
-              icon: Iconsax.notification,
-              onChanged: _toggleNotifications,
-            ),
-            const SizedBox(height: 24),
-
-            // Security Settings
-            _buildSectionHeader('SÉCURITÉ'),
-            _buildSettingTile(
-              title: 'Changer le mot de passe',
-              icon: Iconsax.lock,
-              onTap: _changePassword,
-            ),
-            const SizedBox(height: 24),
-
-            // Logout Button
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Iconsax.logout),
-                label: const Text('Déconnexion'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Profile Card
+                Card(
+                  elevation: 2,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
+                  margin: EdgeInsets.only(bottom: screenHeight * 0.02),
+                  child: Padding(
+                    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: isSmallScreen ? 32 : 40,
+                          backgroundColor: Colors.green,
+                          backgroundImage: _getProfileImage(),
+                          child:
+                              _getProfileImage() == null
+                                  ? Icon(
+                                    Iconsax.user,
+                                    size: isSmallScreen ? 32 : 40,
+                                    color: Colors.white,
+                                  )
+                                  : null,
+                        ),
+                        SizedBox(width: isSmallScreen ? 12 : 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _userData['fullName'] ??
+                                    _user?.displayName ??
+                                    'Utilisateur',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: isSmallScreen ? 18 : null,
+                                ),
+                              ),
+                              SizedBox(height: screenHeight * 0.005),
+                              Text(
+                                _user?.email ?? 'john.doe@example.com',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.bodyMedium?.copyWith(
+                                  fontSize: isSmallScreen ? 14 : null,
+                                ),
+                              ),
+                              SizedBox(height: screenHeight * 0.01),
+                              OutlinedButton.icon(
+                                icon: Icon(
+                                  Iconsax.edit,
+                                  size: isSmallScreen ? 14 : 16,
+                                ),
+                                label: Text(
+                                  'Modifier le profil',
+                                  style: TextStyle(
+                                    fontSize: isSmallScreen ? 14 : null,
+                                  ),
+                                ),
+                                onPressed:
+                                    () => Navigator.pushNamed(
+                                      context,
+                                      '/profile-edit',
+                                    ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.green,
+                                  side: const BorderSide(color: Colors.green),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isSmallScreen ? 8 : 12,
+                                    vertical: isSmallScreen ? 6 : 8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                onPressed: _confirmLogout,
-              ),
+
+                // App Settings
+                _buildSectionHeader('PRÉFÉRENCES DE L\'APPLICATION'),
+                _buildSettingSwitch(
+                  title: 'Mode sombre',
+                  value: _darkMode,
+                  icon: Iconsax.moon,
+                  onChanged: _changeThemeMode,
+                  isSmallScreen: isSmallScreen,
+                ),
+                _buildSettingDropdown(
+                  title: 'Langue',
+                  value: _language,
+                  icon: Iconsax.language_circle,
+                  items: const ['Français', 'Anglais', 'Espagnol', 'Arabe'],
+                  onChanged: _changeLanguage,
+                  isSmallScreen: isSmallScreen,
+                ),
+                _buildSettingDropdown(
+                  title: 'Couleur du thème',
+                  value: _themeColor,
+                  icon: Iconsax.colorfilter,
+                  items: const ['Vert', 'Bleu', 'Violet', 'Rouge', 'Orange'],
+                  onChanged: _changeThemeColor,
+                  isSmallScreen: isSmallScreen,
+                ),
+                _buildSettingSwitch(
+                  title: 'Notifications',
+                  value: _notificationsEnabled,
+                  icon: Iconsax.notification,
+                  onChanged: _toggleNotifications,
+                  isSmallScreen: isSmallScreen,
+                ),
+                SizedBox(height: screenHeight * 0.02),
+
+                // Security Settings
+                _buildSectionHeader('SÉCURITÉ'),
+                _buildSettingTile(
+                  title: 'Changer le mot de passe',
+                  icon: Iconsax.lock,
+                  onTap: _changePassword,
+                  isSmallScreen: isSmallScreen,
+                ),
+                SizedBox(height: screenHeight * 0.02),
+
+                // Logout Button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: Icon(Iconsax.logout, size: isSmallScreen ? 18 : 20),
+                    label: Text(
+                      'Déconnexion',
+                      style: TextStyle(fontSize: isSmallScreen ? 16 : null),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isSmallScreen ? 12 : 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: _confirmLogout,
+                  ),
+                ),
+                SizedBox(height: screenHeight * 0.02),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -252,7 +336,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Text(
         title,
         style: TextStyle(
@@ -269,20 +353,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required IconData icon,
     required VoidCallback onTap,
+    required bool isSmallScreen,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      contentPadding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 4 : 8),
       leading: Container(
-        width: 40,
-        height: 40,
+        width: isSmallScreen ? 36 : 40,
+        height: isSmallScreen ? 36 : 40,
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.1), // Changé en vert
+          color: Colors.green.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: Colors.green), // Changé en vert
+        child: Icon(icon, color: Colors.green, size: isSmallScreen ? 18 : 20),
       ),
-      title: Text(title),
-      trailing: const Icon(Iconsax.arrow_right_3),
+      title: Text(title, style: TextStyle(fontSize: isSmallScreen ? 16 : null)),
+      trailing: Icon(Iconsax.arrow_right_3, size: isSmallScreen ? 18 : 20),
       onTap: onTap,
     );
   }
@@ -292,19 +377,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool value,
     required IconData icon,
     required Function(bool) onChanged,
+    required bool isSmallScreen,
   }) {
     return SwitchListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      contentPadding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 4 : 8),
       secondary: Container(
-        width: 40,
-        height: 40,
+        width: isSmallScreen ? 36 : 40,
+        height: isSmallScreen ? 36 : 40,
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.1), // Changé en vert
+          color: Colors.green.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: Colors.green), // Changé en vert
+        child: Icon(icon, color: Colors.green, size: isSmallScreen ? 18 : 20),
       ),
-      title: Text(title),
+      title: Text(title, style: TextStyle(fontSize: isSmallScreen ? 16 : null)),
       value: value,
       onChanged: onChanged,
     );
@@ -316,25 +402,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required IconData icon,
     required List<String> items,
     required Function(String?) onChanged,
+    required bool isSmallScreen,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      contentPadding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 4 : 8),
       leading: Container(
-        width: 40,
-        height: 40,
+        width: isSmallScreen ? 36 : 40,
+        height: isSmallScreen ? 36 : 40,
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.1), // Changé en vert
+          color: Colors.green.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: Colors.green), // Changé en vert
+        child: Icon(icon, color: Colors.green, size: isSmallScreen ? 18 : 20),
       ),
-      title: Text(title),
+      title: Text(title, style: TextStyle(fontSize: isSmallScreen ? 16 : null)),
       trailing: DropdownButton<String>(
         value: value,
         underline: const SizedBox(),
         items:
             items.map((String value) {
-              return DropdownMenuItem<String>(value: value, child: Text(value));
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(
+                  value,
+                  style: TextStyle(fontSize: isSmallScreen ? 14 : null),
+                ),
+              );
             }).toList(),
         onChanged: onChanged,
       ),

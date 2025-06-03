@@ -39,6 +39,9 @@ class _FriendsScreenState extends State<FriendsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final maxWidth = isMobile ? double.infinity : 600.0;
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AdaptiveDrawer(),
@@ -47,28 +50,36 @@ class _FriendsScreenState extends State<FriendsScreen>
         scaffoldKey: _scaffoldKey,
         user: _user,
       ),
-      body: Column(
-        children: [
-          _buildSearchBar(),
-          _buildMainTabBar(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
               children: [
-                _buildFriendsList(),
-                _buildSuggestionsList(),
-                _buildFriendRequestsTabView(),
+                _buildSearchBar(),
+                _buildMainTabBar(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildFriendsList(),
+                      _buildSuggestionsList(),
+                      _buildFriendRequestsTabView(),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildSearchBar() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
@@ -99,43 +110,46 @@ class _FriendsScreenState extends State<FriendsScreen>
   }
 
   Widget _buildMainTabBar() {
-    return TabBar(
-      controller: _tabController,
-      labelColor: Theme.of(context).primaryColor,
-      unselectedLabelColor: Colors.grey,
-      indicatorColor: Theme.of(context).primaryColor,
-      tabs: const [
-        Tab(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Iconsax.people),
-              SizedBox(width: 6),
-              Text('Mes amis'),
-            ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 0),
+      child: TabBar(
+        controller: _tabController,
+        labelColor: Theme.of(context).primaryColor,
+        unselectedLabelColor: Colors.grey,
+        indicatorColor: Theme.of(context).primaryColor,
+        tabs: const [
+          Tab(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Iconsax.people),
+                SizedBox(width: 6),
+                Text('Mes amis'),
+              ],
+            ),
           ),
-        ),
-        Tab(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Iconsax.user_search),
-              SizedBox(width: 6),
-              Text('Suggestions'),
-            ],
+          Tab(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Iconsax.user_search),
+                SizedBox(width: 6),
+                Text('Suggestions'),
+              ],
+            ),
           ),
-        ),
-        Tab(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Iconsax.user_add),
-              SizedBox(width: 6),
-              Text('Demandes'),
-            ],
+          Tab(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Iconsax.user_add),
+                SizedBox(width: 6),
+                Text('Demandes'),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -170,6 +184,7 @@ class _FriendsScreenState extends State<FriendsScreen>
           }
 
           return ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: friends.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
@@ -281,6 +296,7 @@ class _FriendsScreenState extends State<FriendsScreen>
             }
 
             return ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: filteredSuggestions.length,
               itemBuilder: (context, index) {
                 final user = filteredSuggestions[index];
@@ -356,6 +372,7 @@ class _FriendsScreenState extends State<FriendsScreen>
         }
 
         return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: requests.length,
           itemBuilder: (context, index) {
             final request = requests[index];
@@ -415,6 +432,7 @@ class _FriendsScreenState extends State<FriendsScreen>
         }
 
         return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: requests.length,
           itemBuilder: (context, index) {
             final request = requests[index];
@@ -447,21 +465,24 @@ class _FriendsScreenState extends State<FriendsScreen>
 
   Widget _buildErrorWidget(String error) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 48),
-          const SizedBox(height: 16),
-          Text(
-            'Erreur de chargement',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          Text(error, textAlign: TextAlign.center),
-          TextButton(
-            onPressed: () => setState(() {}),
-            child: const Text('Réessayer'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              'Erreur de chargement',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Text(error, textAlign: TextAlign.center),
+            TextButton(
+              onPressed: () => setState(() {}),
+              child: const Text('Réessayer'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -472,17 +493,20 @@ class _FriendsScreenState extends State<FriendsScreen>
     String? subtitle,
   }) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 48, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          if (subtitle != null) ...[
-            const SizedBox(height: 8),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            if (subtitle != null) ...[
+              const SizedBox(height: 8),
+              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -496,6 +520,7 @@ class _FriendsScreenState extends State<FriendsScreen>
     String recipientId,
   ) async {
     try {
+      // Vérifier si déjà ami
       final friendDoc =
           await _firestore
               .collection('users')
@@ -511,6 +536,7 @@ class _FriendsScreenState extends State<FriendsScreen>
         return;
       }
 
+      // Vérifier si demande déjà envoyée
       final existingRequest =
           await _firestore
               .collection('users')
@@ -526,7 +552,21 @@ class _FriendsScreenState extends State<FriendsScreen>
         return;
       }
 
+      // Récupérer les infos du destinataire
+      final recipientDoc =
+          await _firestore.collection('users').doc(recipientId).get();
+      if (!recipientDoc.exists) {
+        throw Exception('Utilisateur introuvable');
+      }
+
+      final recipientData = recipientDoc.data() as Map<String, dynamic>;
+      final recipientName = recipientData['fullName'] ?? 'Utilisateur';
+      final recipientPhoto = recipientData['photoUrl'];
+      final recipientPhotoBase64 = recipientData['photoBase64'];
+
+      // Exécuter la transaction
       await _firestore.runTransaction((transaction) async {
+        // Ajouter aux demandes envoyées
         transaction.set(
           _firestore
               .collection('users')
@@ -536,6 +576,7 @@ class _FriendsScreenState extends State<FriendsScreen>
           {'timestamp': FieldValue.serverTimestamp()},
         );
 
+        // Ajouter aux demandes reçues du destinataire
         transaction.set(
           _firestore
               .collection('users')
@@ -543,6 +584,31 @@ class _FriendsScreenState extends State<FriendsScreen>
               .collection('received_requests')
               .doc(_user?.uid),
           {'timestamp': FieldValue.serverTimestamp()},
+        );
+
+        // Créer une notification
+        final notificationData = {
+          'userId': recipientId,
+          'type': 'friend_request',
+          'title': 'Nouvelle demande d\'ami',
+          'message':
+              '${_user?.displayName ?? 'Quelqu\'un'} veut vous ajouter comme ami',
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+          'data': {
+            'senderId': _user?.uid,
+            'senderName': _user?.displayName ?? 'Utilisateur inconnu',
+            'senderImage': _user?.photoURL,
+            'recipientName': recipientName,
+            if (recipientPhoto != null) 'recipientPhoto': recipientPhoto,
+            if (recipientPhotoBase64 != null)
+              'recipientPhotoBase64': recipientPhotoBase64,
+          },
+        };
+
+        transaction.set(
+          _firestore.collection('notifications').doc(),
+          notificationData,
         );
       });
 
@@ -553,12 +619,25 @@ class _FriendsScreenState extends State<FriendsScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      debugPrint('Erreur sendFriendRequest: $e');
     }
   }
 
   Future<void> _removeFriend(BuildContext context, String friendId) async {
     try {
+      final friendDoc =
+          await _firestore.collection('users').doc(friendId).get();
+      if (!friendDoc.exists) {
+        throw Exception('Utilisateur introuvable');
+      }
+
+      final friendData = friendDoc.data() as Map<String, dynamic>;
+      final friendName = friendData['fullName'] ?? 'Utilisateur';
+      final friendPhoto = friendData['photoUrl'];
+      final friendPhotoBase64 = friendData['photoBase64'];
+
       await _firestore.runTransaction((transaction) async {
+        // Supprimer des amis de l'utilisateur actuel
         transaction.delete(
           _firestore
               .collection('users')
@@ -567,12 +646,38 @@ class _FriendsScreenState extends State<FriendsScreen>
               .doc(friendId),
         );
 
+        // Supprimer des amis de l'autre utilisateur
         transaction.delete(
           _firestore
               .collection('users')
               .doc(friendId)
               .collection('friends')
               .doc(_user?.uid),
+        );
+
+        // Créer une notification
+        final notificationData = {
+          'userId': friendId,
+          'type': 'friend_removed',
+          'title': 'Ami supprimé',
+          'message':
+              '${_user?.displayName ?? 'Quelqu\'un'} vous a retiré de ses amis',
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+          'data': {
+            'senderId': _user?.uid,
+            'senderName': _user?.displayName ?? 'Utilisateur inconnu',
+            'senderImage': _user?.photoURL,
+            'friendName': friendName,
+            if (friendPhoto != null) 'friendPhoto': friendPhoto,
+            if (friendPhotoBase64 != null)
+              'friendPhotoBase64': friendPhotoBase64,
+          },
+        };
+
+        transaction.set(
+          _firestore.collection('notifications').doc(),
+          notificationData,
         );
       });
 
@@ -583,6 +688,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      debugPrint('Erreur removeFriend: $e');
     }
   }
 
@@ -592,7 +698,26 @@ class _FriendsScreenState extends State<FriendsScreen>
   ) async {
     final timestamp = FieldValue.serverTimestamp();
     try {
+      // Récupérer les données de l'expéditeur
+      DocumentSnapshot senderDoc =
+          await _firestore.collection('users').doc(senderId).get();
+      if (!senderDoc.exists) {
+        throw Exception("L'utilisateur expéditeur n'existe pas");
+      }
+
+      Map<String, dynamic> senderData =
+          senderDoc.data() as Map<String, dynamic>;
+      String senderName = senderData['fullName'] ?? 'Utilisateur inconnu';
+      String? senderPhoto =
+          senderData.containsKey('photoUrl') ? senderData['photoUrl'] : null;
+      String? senderPhotoBase64 =
+          senderData.containsKey('photoBase64')
+              ? senderData['photoBase64']
+              : null;
+
+      // Exécuter la transaction
       await _firestore.runTransaction((transaction) async {
+        // Supprimer la demande
         transaction.delete(
           _firestore
               .collection('users')
@@ -609,6 +734,7 @@ class _FriendsScreenState extends State<FriendsScreen>
               .doc(_user?.uid),
         );
 
+        // Ajouter l'ami
         transaction.set(
           _firestore
               .collection('users')
@@ -625,6 +751,31 @@ class _FriendsScreenState extends State<FriendsScreen>
               .collection('friends')
               .doc(_user?.uid),
           {'addedAt': timestamp},
+        );
+
+        // Créer une notification
+        Map<String, dynamic> notificationData = {
+          'userId': senderId,
+          'type': 'friend_accept',
+          'title': 'Demande acceptée',
+          'message':
+              '${_user?.displayName ?? 'Quelqu\'un'} a accepté votre demande d\'ami',
+          'createdAt': timestamp,
+          'read': false,
+          'data': {
+            'senderId': _user?.uid,
+            'senderName': _user?.displayName ?? 'Utilisateur inconnu',
+            'senderImage': _user?.photoURL,
+            'recipientName': senderName,
+            if (senderPhoto != null) 'recipientPhoto': senderPhoto,
+            if (senderPhotoBase64 != null)
+              'recipientPhotoBase64': senderPhotoBase64,
+          },
+        };
+
+        transaction.set(
+          _firestore.collection('notifications').doc(),
+          notificationData,
         );
       });
 
@@ -635,6 +786,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      debugPrint('Erreur acceptFriendRequest: $e');
     }
   }
 
@@ -643,6 +795,16 @@ class _FriendsScreenState extends State<FriendsScreen>
     String senderId,
   ) async {
     try {
+      DocumentSnapshot senderDoc =
+          await _firestore.collection('users').doc(senderId).get();
+      if (!senderDoc.exists) {
+        throw Exception("L'utilisateur expéditeur n'existe pas");
+      }
+
+      Map<String, dynamic> senderData =
+          senderDoc.data() as Map<String, dynamic>;
+      String senderName = senderData['fullName'] ?? 'Utilisateur inconnu';
+
       await _firestore.runTransaction((transaction) async {
         transaction.delete(
           _firestore
@@ -659,6 +821,22 @@ class _FriendsScreenState extends State<FriendsScreen>
               .collection('sent_requests')
               .doc(_user?.uid),
         );
+
+        // Notification optionnelle pour le rejet
+        transaction.set(_firestore.collection('notifications').doc(), {
+          'userId': senderId,
+          'type': 'friend_reject',
+          'title': 'Demande rejetée',
+          'message':
+              '${_user?.displayName ?? 'Quelqu\'un'} a décliné votre demande d\'ami',
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+          'data': {
+            'senderId': _user?.uid,
+            'senderName': _user?.displayName ?? 'Utilisateur inconnu',
+            'recipientName': senderName,
+          },
+        });
       });
 
       ScaffoldMessenger.of(
@@ -668,6 +846,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      debugPrint('Erreur rejectFriendRequest: $e');
     }
   }
 
@@ -701,6 +880,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      debugPrint('Erreur cancelFriendRequest: $e');
     }
   }
 
