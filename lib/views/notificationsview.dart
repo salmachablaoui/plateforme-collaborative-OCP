@@ -1,8 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'profil.dart';
 import 'shared/custom_app_bar.dart';
 import 'shared/adaptive_drawer.dart';
@@ -20,11 +23,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       firebase_auth.FirebaseAuth.instance.currentUser;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ScrollController _scrollController = ScrollController();
+  int _unreadCount = 0;
+  StreamSubscription<QuerySnapshot>? _unreadSubscription;
 
   @override
   void initState() {
     super.initState();
     timeago.setLocaleMessages('fr', timeago.FrMessages());
+    _initUnreadCount();
+  }
+
+  @override
+  void dispose() {
+    _unreadSubscription?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initUnreadCount() async {
+    // Charge le compteur initial
+    await _loadUnreadCount();
+
+    // Met en place l'écouteur pour les changements en temps réel
+    if (_user?.uid != null) {
+      _unreadSubscription = _firestore
+          .collection('notifications')
+          .where('userId', isEqualTo: _user?.uid)
+          .where('read', isEqualTo: false)
+          .snapshots()
+          .listen((snapshot) {
+            setState(() {
+              _unreadCount = snapshot.size;
+            });
+          });
+    }
+  }
+
+  Future<void> _loadUnreadCount() async {
+    if (_user?.uid == null) return;
+
+    final snapshot =
+        await _firestore
+            .collection('notifications')
+            .where('userId', isEqualTo: _user?.uid)
+            .where('read', isEqualTo: false)
+            .get();
+
+    setState(() {
+      _unreadCount = snapshot.size;
+    });
   }
 
   @override
@@ -37,6 +84,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         scaffoldKey: _scaffoldKey,
         user: _user,
         showSearchButton: false,
+        unreadNotificationsCount: _unreadCount,
       ),
       body:
           _user == null
@@ -60,10 +108,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               .collection('notifications')
               .where('userId', isEqualTo: _user?.uid)
               .orderBy('createdAt', descending: true)
-              .limit(100) // Limite pour éviter de charger trop de données
+              .limit(100)
               .snapshots(),
       builder: (context, snapshot) {
-        // Gestion des erreurs améliorée
         if (snapshot.hasError) {
           debugPrint('Erreur de notification: ${snapshot.error}');
           return _buildErrorWidget(
@@ -107,131 +154,50 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Future<void> _markAllAsRead() async {
-    try {
-      final query =
-          await _firestore
-              .collection('notifications')
-              .where('userId', isEqualTo: _user?.uid)
-              .where('read', isEqualTo: false)
-              .get();
-
-      final batch = _firestore.batch();
-      for (final doc in query.docs) {
-        batch.update(doc.reference, {'read': true});
-      }
-      await batch.commit();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Toutes les notifications marquées comme lues'),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Erreur lors du marquage comme lues: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-      }
-    }
-  }
-
-  Future<void> _refreshNotifications() async {
-    setState(() {});
-  }
-
   Future<void> _handleNotificationTap(
     Map<String, dynamic> notification,
     String notificationId,
   ) async {
-    try {
-      if (!notification['read']) {
-        await _firestore.collection('notifications').doc(notificationId).update(
-          {'read': true, 'readAt': FieldValue.serverTimestamp()},
-        );
-      }
+    if (!notification['read']) {
+      await _firestore.collection('notifications').doc(notificationId).update({
+        'read': true,
+        'readAt': FieldValue.serverTimestamp(),
+      });
 
-      if (!mounted) return;
+      // Pas besoin de setState ici car l'écouteur se chargera de la mise à jour
+    }
 
-      switch (notification['type']) {
-        case 'friend_request':
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder:
-                  (context) => ProfileScreen(userId: notification['senderId']),
-            ),
-          );
-          break;
-        case 'friend_request_accepted':
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder:
-                  (context) => ProfileScreen(userId: notification['senderId']),
-            ),
-          );
-          break;
-        case 'new_message':
-          Navigator.pushNamed(
-            context,
-            '/chatrooms',
-            arguments: {'userId': notification['senderId']},
-          );
-          break;
-        case 'post_comment':
-          Navigator.pushNamed(
-            context,
-            '/post',
-            arguments: {
-              'postId': notification['data']['postId'],
-              'focusComment': true,
-            },
-          );
-          break;
-        default:
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Action non prise en charge')),
-            );
-          }
-      }
-    } catch (e) {
-      debugPrint('Erreur lors du traitement: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(
+    // Gestion de la navigation en fonction du type de notification
+    switch (notification['type']) {
+      case 'friend_request':
+        Navigator.push(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-      }
+          MaterialPageRoute(
+            builder:
+                (context) => ProfileScreen(userId: notification['senderId']),
+          ),
+        );
+        break;
+      // Ajoutez d'autres cas selon vos besoins
+      default:
+        // Action par défaut
+        break;
     }
   }
 
   Future<void> _dismissNotification(String notificationId) async {
-    try {
-      await _firestore.collection('notifications').doc(notificationId).delete();
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Notification supprimée')));
-      }
-    } catch (e) {
-      debugPrint('Erreur lors de la suppression: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-      }
-    }
+    await _firestore.collection('notifications').doc(notificationId).delete();
+    // Pas besoin de setState ici car l'écouteur se chargera de la mise à jour
   }
 
-  Widget _buildErrorWidget(String error, {VoidCallback? onRetry}) {
-    return Padding(
-      padding: const EdgeInsets.all(20),
+  Future<void> _refreshNotifications() async {
+    await _loadUnreadCount();
+  }
+
+  Widget _buildErrorWidget(String error, {required VoidCallback onRetry}) {
+    return Center(
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.error_outline, color: Colors.red, size: 48),
           const SizedBox(height: 16),
@@ -296,6 +262,8 @@ class _NotificationCard extends StatelessWidget {
     final theme = Theme.of(context);
     final createdAt = (notification['createdAt'] as Timestamp).toDate();
     final senderImage = notification['senderImage'] as String?;
+    final senderImageBase64 = notification['senderImageBase64'] as String?;
+    final senderName = notification['senderName'] as String? ?? 'Utilisateur';
 
     return Dismissible(
       key: Key(notificationId),
@@ -350,21 +318,10 @@ class _NotificationCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage:
-                          senderImage != null
-                              ? NetworkImage(senderImage)
-                              : null,
-                      child:
-                          senderImage == null
-                              ? const Icon(
-                                Icons.person,
-                                size: 20,
-                                color: Colors.grey,
-                              )
-                              : null,
+                    _buildProfileImage(
+                      senderImage,
+                      senderImageBase64,
+                      senderName,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -418,6 +375,55 @@ class _NotificationCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildProfileImage(
+    String? photoUrl,
+    String? photoBase64,
+    String name,
+  ) {
+    final initials =
+        name.isNotEmpty
+            ? name
+                .split(' ')
+                .map((e) => e.isNotEmpty ? e[0] : '')
+                .take(2)
+                .join()
+            : '?';
+
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundImage: CachedNetworkImageProvider(photoUrl),
+        backgroundColor: Colors.grey.shade200,
+      );
+    } else if (photoBase64 != null && photoBase64.isNotEmpty) {
+      try {
+        final base64String = photoBase64.split(',').last;
+        return CircleAvatar(
+          radius: 20,
+          backgroundImage: MemoryImage(base64Decode(base64String)),
+          backgroundColor: Colors.grey.shade200,
+        );
+      } catch (e) {
+        debugPrint('Erreur de décodage base64: $e');
+        return _buildInitialsAvatar(initials);
+      }
+    } else {
+      return _buildInitialsAvatar(initials);
+    }
+  }
+
+  Widget _buildInitialsAvatar(String initials) {
+    final color = Colors.primaries[initials.length % Colors.primaries.length];
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: color.withOpacity(0.2),
+      child: Text(
+        initials,
+        style: TextStyle(color: color, fontWeight: FontWeight.bold),
       ),
     );
   }

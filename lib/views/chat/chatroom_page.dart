@@ -6,6 +6,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:app_stage/views/chat/infos_chatroom.dart';
 
 // Thème vert moderne
 final ThemeData greenTheme = ThemeData(
@@ -14,7 +18,6 @@ final ThemeData greenTheme = ThemeData(
     primary: Color(0xFF2E7D32),
     secondary: Color(0xFF4CAF50),
     surface: Colors.white,
-    //background: Color(0xFFE8F5E9),
     background: Colors.white,
   ),
   appBarTheme: const AppBarTheme(
@@ -26,9 +29,11 @@ final ThemeData greenTheme = ThemeData(
   floatingActionButtonTheme: const FloatingActionButtonThemeData(
     backgroundColor: Color(0xFF4CAF50),
   ),
-  cardTheme: CardThemeData(
+  cardTheme: const CardThemeData(
     elevation: 1,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+    ),
   ),
 );
 
@@ -52,15 +57,18 @@ class _ChatroomPageState extends State<ChatroomPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
+
   late Stream<QuerySnapshot> _messagesStream;
   late Stream<DocumentSnapshot> _chatroomStream;
   Map<String, dynamic>? _chatroomData;
   Map<String, String> _userNames = {};
   Map<String, String> _userPhotos = {};
+
   bool _showAttachmentOptions = false;
   bool _isFavorite = false;
   bool _isAdmin = false;
   bool _isScrolledUp = false;
+  bool _isUploading = false;
 
   @override
   void initState() {
@@ -71,7 +79,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
       _markMessagesAsRead();
       _scrollToBottom();
     });
-
     _scrollController.addListener(_scrollListener);
   }
 
@@ -103,7 +110,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
   Future<void> _checkUserStatus() async {
     if (_currentUser == null) return;
 
-    // Vérifier le statut favori
     final favDoc =
         await _firestore
             .collection('chatrooms')
@@ -112,7 +118,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
             .doc(_currentUser!.uid)
             .get();
 
-    // Vérifier le statut admin
     final chatroomDoc =
         await _firestore.collection('chatrooms').doc(widget.chatroomId).get();
 
@@ -167,14 +172,44 @@ class _ChatroomPageState extends State<ChatroomPage> {
             'senderId': _currentUser?.uid,
             'timestamp': FieldValue.serverTimestamp(),
             'read': false,
+            'type': 'text',
           });
 
       await _updateChatroomAfterMessage(message);
       _scrollToBottom();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+      _showErrorSnackbar('Erreur: ${e.toString()}');
+    }
+  }
+
+  Future<void> _sendPollMessage(List<String> options, String question) async {
+    try {
+      await _firestore
+          .collection('chatrooms')
+          .doc(widget.chatroomId)
+          .collection('messages')
+          .add({
+            'text': question,
+            'senderId': _currentUser?.uid,
+            'timestamp': FieldValue.serverTimestamp(),
+            'read': false,
+            'type': 'poll',
+            'poll': {
+              'options': options,
+              'votes': List.filled(options.length, 0),
+              'voters': [],
+              'endTime':
+                  DateTime.now().add(const Duration(days: 1)).toIso8601String(),
+              'question': question,
+            },
+          });
+
+      await _updateChatroomAfterMessage('Sondage: $question');
+      _scrollToBottom();
+    } catch (e) {
+      _showErrorSnackbar(
+        'Erreur lors de la création du sondage: ${e.toString()}',
+      );
     }
   }
 
@@ -275,7 +310,10 @@ class _ChatroomPageState extends State<ChatroomPage> {
     final senderId = messageData['senderId'];
     final messageText = messageData['text'] ?? '';
     final timestamp = messageData['timestamp'] as Timestamp?;
-    final attachment = messageData['attachment'] as Map<String, dynamic>?;
+    final type = messageData['type'] ?? 'text';
+    final pollData = messageData['poll'] as Map<String, dynamic>?;
+    final imageBase64 = messageData['imageBase64'] as String?;
+    final imageUrl = messageData['imageUrl'] as String?;
 
     _loadUserInfo(senderId);
 
@@ -293,17 +331,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
               if (!isMe)
                 Padding(
                   padding: const EdgeInsets.only(right: 8.0),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundImage:
-                        _userPhotos[senderId]?.isNotEmpty ?? false
-                            ? CachedNetworkImageProvider(_userPhotos[senderId]!)
-                            : null,
-                    child:
-                        _userPhotos[senderId]?.isEmpty ?? true
-                            ? Text(_userNames[senderId]?.substring(0, 1) ?? 'U')
-                            : null,
-                  ),
+                  child: _buildUserAvatar(senderId),
                 ),
               Flexible(
                 child: Column(
@@ -322,34 +350,46 @@ class _ChatroomPageState extends State<ChatroomPage> {
                           ),
                         ),
                       ),
-                    if (attachment != null) _buildAttachmentWidget(attachment),
-                    Container(
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.75,
+                    if (type == 'image' &&
+                        (imageBase64 != null || imageUrl != null))
+                      _buildImageMessage(imageBase64, imageUrl),
+                    if (type == 'poll' && pollData != null)
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SizedBox(
+                            width: constraints.maxWidth * 0.65,
+                            child: _buildPollWidget(pollData, messageDoc.id),
+                          );
+                        },
                       ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            isMe
-                                ? greenTheme.colorScheme.primary
-                                : Colors.grey[200],
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(16),
-                          topRight: const Radius.circular(16),
-                          bottomLeft: Radius.circular(isMe ? 16 : 4),
-                          bottomRight: Radius.circular(isMe ? 4 : 16),
+                    if (type == 'text')
+                      Container(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.75,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              isMe
+                                  ? greenTheme.colorScheme.primary
+                                  : Colors.grey[200],
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(12),
+                            topRight: const Radius.circular(12),
+                            bottomLeft: Radius.circular(isMe ? 12 : 4),
+                            bottomRight: Radius.circular(isMe ? 4 : 12),
+                          ),
+                        ),
+                        child: Text(
+                          messageText,
+                          style: TextStyle(
+                            color: isMe ? Colors.white : Colors.black87,
+                          ),
                         ),
                       ),
-                      child: Text(
-                        messageText,
-                        style: TextStyle(
-                          color: isMe ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                    ),
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(
@@ -394,130 +434,307 @@ class _ChatroomPageState extends State<ChatroomPage> {
     );
   }
 
-  Widget _buildAttachmentWidget(Map<String, dynamic> attachment) {
-    final type = attachment['type'] as String? ?? 'unknown';
-    final url = attachment['url'] as String? ?? '';
-
-    switch (type) {
-      case 'image':
-        return Container(
-          margin: const EdgeInsets.only(bottom: 4),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: CachedNetworkImage(
-              imageUrl: url,
-              width: 200,
-              height: 200,
-              fit: BoxFit.cover,
-              placeholder:
-                  (context, url) => Container(
-                    color: Colors.grey[300],
-                    width: 200,
-                    height: 200,
-                  ),
-              errorWidget:
-                  (context, url, error) => Container(
-                    color: Colors.grey[300],
-                    width: 200,
-                    height: 200,
-                    child: const Icon(Iconsax.gallery_slash),
-                  ),
-            ),
-          ),
-        );
-      case 'document':
-        return Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Iconsax.document, color: Colors.green),
-              const SizedBox(width: 8),
-              const Text('Document', style: TextStyle(color: Colors.green)),
-            ],
-          ),
-        );
-      default:
-        return Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Text('Fichier joint'),
-        );
-    }
-  }
-
-  Widget _buildParticipantChips() {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: _chatroomStream,
+  Widget _buildUserAvatar(String userId) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: _firestore.collection('users').doc(userId).get(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const SizedBox();
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final userData = snapshot.data!.data() as Map<String, dynamic>;
+          final photoUrl = userData['photoUrl'] as String?;
+
+          if (photoUrl?.isNotEmpty ?? false) {
+            return CircleAvatar(
+              radius: 16,
+              backgroundImage: CachedNetworkImageProvider(photoUrl!),
+            );
+          }
         }
 
-        final chatroomData = snapshot.data!.data() as Map<String, dynamic>;
-        final participants = List<String>.from(
-          chatroomData['participants'] ?? [],
-        );
-
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children:
-                participants.map((userId) {
-                  return FutureBuilder<DocumentSnapshot>(
-                    future: _firestore.collection('users').doc(userId).get(),
-                    builder: (context, userSnapshot) {
-                      if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
-                        return const SizedBox();
-                      }
-
-                      final userData =
-                          userSnapshot.data!.data() as Map<String, dynamic>;
-                      final isAdmin = userId == chatroomData['createdBy'];
-                      final fullName = userData['fullName'] ?? 'Utilisateur';
-                      final photoUrl = userData['photoUrl'] as String?;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: Chip(
-                          avatar: CircleAvatar(
-                            radius: 14,
-                            backgroundImage:
-                                photoUrl != null && photoUrl.isNotEmpty
-                                    ? CachedNetworkImageProvider(photoUrl)
-                                    : null,
-                            child:
-                                photoUrl == null || photoUrl.isEmpty
-                                    ? Text(fullName.substring(0, 1))
-                                    : null,
-                          ),
-                          label: Text(fullName),
-                          backgroundColor:
-                              isAdmin
-                                  ? Colors.green.withOpacity(0.2)
-                                  : Colors.grey[200],
-                        ),
-                      );
-                    },
-                  );
-                }).toList(),
+        return CircleAvatar(
+          radius: 16,
+          backgroundColor: Colors.green[100],
+          child: Text(
+            _userNames[userId]?.substring(0, 1) ?? 'U',
+            style: TextStyle(color: Colors.green[800]),
           ),
         );
       },
     );
   }
 
-  Widget _buildAppBarActions() {
-    return Row(
-      children: [
+  Widget _buildImageMessage(String? imageBase64, String? imageUrl) {
+    return GestureDetector(
+      onTap: () => _showFullScreenImage(imageBase64, imageUrl),
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.65,
+          maxHeight: 200,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.grey[200],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: _buildImageContent(imageBase64, imageUrl),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageContent(String? imageBase64, String? imageUrl) {
+    if (imageUrl != null) {
+      return CachedNetworkImage(
+        imageUrl: imageUrl,
+        fit: BoxFit.cover,
+        placeholder: (context, url) => Container(color: Colors.grey[300]),
+        errorWidget:
+            (context, url, error) => Container(
+              color: Colors.grey[300],
+              child: const Icon(Iconsax.gallery_slash),
+            ),
+      );
+    } else if (imageBase64 != null) {
+      return Image.memory(
+        base64Decode(imageBase64.split(',').last),
+        fit: BoxFit.cover,
+        errorBuilder:
+            (context, error, stackTrace) => Container(
+              color: Colors.grey[300],
+              child: const Icon(Iconsax.gallery_slash),
+            ),
+      );
+    } else {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(Iconsax.gallery_slash),
+      );
+    }
+  }
+
+  void _showFullScreenImage(String? imageBase64, String? imageUrl) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            child: InteractiveViewer(
+              child:
+                  imageUrl != null
+                      ? CachedNetworkImage(imageUrl: imageUrl)
+                      : imageBase64 != null
+                      ? Image.memory(base64Decode(imageBase64.split(',').last))
+                      : Container(),
+            ),
+          ),
+    );
+  }
+
+  Widget _buildPollWidget(Map<String, dynamic> pollData, String messageId) {
+    final options = List<String>.from(pollData['options'] ?? []);
+    final votes = List<int>.from(pollData['votes'] ?? []);
+    final voters = List<String>.from(pollData['voters'] ?? []);
+    final endTime = DateTime.parse(pollData['endTime']);
+    final hasVoted = voters.contains(_currentUser?.uid);
+    final isExpired = DateTime.now().isAfter(endTime);
+    final totalVotes = votes.isNotEmpty ? votes.reduce((a, b) => a + b) : 0;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Sondage: ${pollData['question'] ?? ''}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.green[800],
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...options.asMap().entries.map((entry) {
+            final index = entry.key;
+            final option = entry.value;
+            final percentage =
+                totalVotes > 0 ? (votes[index] / totalVotes * 100).round() : 0;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                onTap: () {
+                  if (!hasVoted && !isExpired && _currentUser != null) {
+                    _voteInPoll(messageId, index, options, votes, voters);
+                  }
+                },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            option,
+                            style: TextStyle(
+                              color:
+                                  hasVoted || isExpired
+                                      ? Colors.green[800]
+                                      : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        if (hasVoted || isExpired)
+                          Text(
+                            '$percentage%',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[800],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (hasVoted || isExpired) ...[
+                      const SizedBox(height: 4),
+                      LinearProgressIndicator(
+                        value: percentage / 100,
+                        minHeight: 4,
+                        backgroundColor: Colors.grey[300],
+                        color: Colors.green,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 4),
+          Text(
+            isExpired
+                ? 'Terminé • $totalVotes votes'
+                : 'Clôture dans ${_formatTimeRemaining(endTime)}',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTimeRemaining(DateTime endTime) {
+    final now = DateTime.now();
+    final difference = endTime.difference(now);
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays} jour${difference.inDays > 1 ? 's' : ''}';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} heure${difference.inHours > 1 ? 's' : ''}';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''}';
+    } else {
+      return 'moins d\'une minute';
+    }
+  }
+
+  Future<void> _voteInPoll(
+    String messageId,
+    int optionIndex,
+    List<String> options,
+    List<int> votes,
+    List<String> voters,
+  ) async {
+    try {
+      final newVotes = List<int>.from(votes);
+      newVotes[optionIndex] += 1;
+
+      await _firestore
+          .collection('chatrooms')
+          .doc(widget.chatroomId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+            'poll.votes': newVotes,
+            'poll.voters': FieldValue.arrayUnion([_currentUser!.uid]),
+          });
+    } catch (e) {
+      _showErrorSnackbar('Erreur lors du vote: ${e.toString()}');
+    }
+  }
+
+  Widget _buildGroupAvatar() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _chatroomStream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const CircleAvatar(radius: 16, child: Icon(Iconsax.people));
+        }
+
+        final chatroomData = snapshot.data!.data() as Map<String, dynamic>;
+        final photoUrl = chatroomData['photoUrl'] as String?;
+
+        return CircleAvatar(
+          radius: 16,
+          backgroundImage:
+              photoUrl != null ? CachedNetworkImageProvider(photoUrl) : null,
+          child: photoUrl == null ? const Icon(Iconsax.people, size: 16) : null,
+        );
+      },
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Row(
+        children: [
+          _buildGroupAvatar(),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StreamBuilder<DocumentSnapshot>(
+                  stream: _chatroomStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData && snapshot.data!.exists) {
+                      _chatroomData =
+                          snapshot.data!.data() as Map<String, dynamic>;
+                      return Text(
+                        _chatroomData!['name'] ?? 'Chatroom',
+                        style: const TextStyle(fontSize: 16),
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    }
+                    return const Text('Chatroom');
+                  },
+                ),
+                StreamBuilder<DocumentSnapshot>(
+                  stream: _chatroomStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData && snapshot.data!.exists) {
+                      final participants =
+                          (snapshot.data!['participants'] as List).length;
+                      return Text(
+                        '$participants membres',
+                        style: const TextStyle(fontSize: 12),
+                      );
+                    }
+                    return const SizedBox();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
         IconButton(
           icon: Icon(
             _isFavorite ? Iconsax.star1 : Iconsax.star,
@@ -548,132 +765,16 @@ class _ChatroomPageState extends State<ChatroomPage> {
   }
 
   void _showChatroomInfo() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => InfosChatroomPage(
+              chatroomId: widget.chatroomId,
+              isAdmin: _isAdmin,
+              onMembersUpdated: () => setState(() {}),
+            ),
       ),
-      builder: (context) {
-        return StreamBuilder<DocumentSnapshot>(
-          stream: _chatroomStream,
-          builder: (context, snapshot) {
-            if (!snapshot.hasData || !snapshot.data!.exists) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final chatroomData = snapshot.data!.data() as Map<String, dynamic>;
-            final participants = List<String>.from(
-              chatroomData['participants'] ?? [],
-            );
-            final createdAt = chatroomData['createdAt'] as Timestamp?;
-            final createdBy = chatroomData['createdBy'];
-
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Text(
-                      chatroomData['name'] ?? 'Chatroom',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (createdAt != null)
-                    Text(
-                      'Créée le ${DateFormat('dd/MM/yyyy').format(createdAt.toDate())}',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Participants:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: participants.length,
-                      itemBuilder: (context, index) {
-                        final userId = participants[index];
-                        return FutureBuilder<DocumentSnapshot>(
-                          future:
-                              _firestore.collection('users').doc(userId).get(),
-                          builder: (context, userSnapshot) {
-                            if (!userSnapshot.hasData ||
-                                !userSnapshot.data!.exists) {
-                              return const ListTile(
-                                title: Text('Utilisateur inconnu'),
-                              );
-                            }
-
-                            final userData =
-                                userSnapshot.data!.data()
-                                    as Map<String, dynamic>;
-                            final isAdmin = userId == createdBy;
-                            final fullName =
-                                userData['fullName'] ?? 'Utilisateur';
-                            final photoUrl = userData['photoUrl'] as String?;
-
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundImage:
-                                    photoUrl != null && photoUrl.isNotEmpty
-                                        ? CachedNetworkImageProvider(photoUrl)
-                                        : null,
-                                child:
-                                    photoUrl == null || photoUrl.isEmpty
-                                        ? Text(fullName.substring(0, 1))
-                                        : null,
-                              ),
-                              title: Text(fullName),
-                              subtitle: isAdmin ? const Text('Admin') : null,
-                              trailing:
-                                  isAdmin
-                                      ? const Icon(
-                                        Iconsax.crown1,
-                                        color: Colors.amber,
-                                      )
-                                      : null,
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_currentUser?.uid == createdBy)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: _addParticipants,
-                        child: const Text('Ajouter des participants'),
-                      ),
-                    ),
-                  if (_currentUser?.uid != createdBy)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: _confirmLeaveChatroom,
-                        child: const Text('Quitter la conversation'),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -713,62 +814,9 @@ class _ChatroomPageState extends State<ChatroomPage> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+        _showErrorSnackbar('Erreur: ${e.toString()}');
       }
     }
-  }
-
-  void _confirmLeaveChatroom() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Quitter la conversation'),
-            content: const Text(
-              'Voulez-vous vraiment quitter cette conversation ?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _leaveChatroom();
-                },
-                child: const Text(
-                  'Quitter',
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            ],
-          ),
-    );
-  }
-
-  Future<void> _leaveChatroom() async {
-    if (_currentUser == null) return;
-
-    try {
-      await _firestore.collection('chatrooms').doc(widget.chatroomId).update({
-        'participants': FieldValue.arrayRemove([_currentUser!.uid]),
-      });
-      widget.onDelete();
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-      }
-    }
-  }
-
-  Future<void> _addParticipants() async {
-    // TODO: Implémenter la logique d'ajout de participants
   }
 
   Widget _buildAttachmentOptions() {
@@ -809,7 +857,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
                 'Document',
                 _pickDocument,
               ),
-              _buildAttachmentOption(Iconsax.microphone, 'Audio', _recordAudio),
+              _buildAttachmentOption(Iconsax.chart, 'Sondage', _createPoll),
             ],
           ),
         ),
@@ -834,7 +882,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
     try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
       if (image != null) {
-        _sendFileMessage('image', image.path);
+        await _uploadImage(File(image.path));
       }
     } catch (e) {
       _showErrorSnackbar('Erreur lors de la sélection de l\'image');
@@ -847,12 +895,69 @@ class _ChatroomPageState extends State<ChatroomPage> {
     try {
       final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
       if (photo != null) {
-        _sendFileMessage('image', photo.path);
+        await _uploadImage(File(photo.path));
       }
     } catch (e) {
       _showErrorSnackbar('Erreur lors de la prise de photo');
     } finally {
       setState(() => _showAttachmentOptions = false);
+    }
+  }
+
+  Future<void> _uploadImage(File imageFile) async {
+    setState(() => _isUploading = true);
+
+    try {
+      // Vérifier la taille de l'image avant l'upload
+      final fileSize = await imageFile.length();
+      if (fileSize > 5 * 1024 * 1024) {
+        // 5MB max
+        _showErrorSnackbar('L\'image est trop grande (max 5MB)');
+        return;
+      }
+
+      if (kIsWeb) {
+        // Solution pour le web
+        final bytes = await imageFile.readAsBytes();
+        final imageData = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+        await _firestore
+            .collection('chatrooms')
+            .doc(widget.chatroomId)
+            .collection('messages')
+            .add({
+              'imageBase64': imageData,
+              'senderId': _currentUser?.uid,
+              'timestamp': FieldValue.serverTimestamp(),
+              'type': 'image',
+              'text': _messageController.text.trim(),
+            });
+      } else {
+        // Solution pour mobile
+        final bytes = await imageFile.readAsBytes();
+        final base64String = base64Encode(bytes);
+        final imageData = 'data:image/jpeg;base64,$base64String';
+
+        await _firestore
+            .collection('chatrooms')
+            .doc(widget.chatroomId)
+            .collection('messages')
+            .add({
+              'imageBase64': imageData,
+              'senderId': _currentUser?.uid,
+              'timestamp': FieldValue.serverTimestamp(),
+              'type': 'image',
+              'text': _messageController.text.trim(),
+            });
+      }
+
+      await _updateChatroomAfterMessage('Image envoyée');
+      _messageController.clear();
+      _scrollToBottom();
+    } catch (e) {
+      _showErrorSnackbar('Erreur lors de l\'envoi de l\'image: $e');
+    } finally {
+      setState(() => _isUploading = false);
     }
   }
 
@@ -872,13 +977,20 @@ class _ChatroomPageState extends State<ChatroomPage> {
     }
   }
 
-  void _recordAudio() {
-    // TODO: Implémenter l'enregistrement audio
+  void _createPoll() {
     setState(() => _showAttachmentOptions = false);
-  }
-
-  void _toggleAttachmentOptions() {
-    setState(() => _showAttachmentOptions = !_showAttachmentOptions);
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Créer un sondage'),
+            content: PollCreationDialog(
+              onCreatePoll: (question, options) {
+                _sendPollMessage(options, question);
+              },
+            ),
+          ),
+    );
   }
 
   Future<void> _sendFileMessage(String type, String path) async {
@@ -900,10 +1012,8 @@ class _ChatroomPageState extends State<ChatroomPage> {
     }
   }
 
-  void _showErrorSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
-    );
+  void _toggleAttachmentOptions() {
+    setState(() => _showAttachmentOptions = !_showAttachmentOptions);
   }
 
   Widget _buildMessageInput() {
@@ -941,7 +1051,7 @@ class _ChatroomPageState extends State<ChatroomPage> {
                   ),
                   IconButton(
                     icon: Icon(Iconsax.send1, color: Colors.green[700]),
-                    onPressed: _sendMessage,
+                    onPressed: _isUploading ? null : _sendMessage,
                   ),
                 ],
               ),
@@ -965,25 +1075,19 @@ class _ChatroomPageState extends State<ChatroomPage> {
     );
   }
 
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Theme(
       data: greenTheme,
       child: Scaffold(
         backgroundColor: const Color(0xFFE8F5E9),
-        appBar: AppBar(
-          title: StreamBuilder<DocumentSnapshot>(
-            stream: _chatroomStream,
-            builder: (context, snapshot) {
-              if (snapshot.hasData && snapshot.data!.exists) {
-                _chatroomData = snapshot.data!.data() as Map<String, dynamic>;
-                return Text(_chatroomData!['name'] ?? 'Chatroom');
-              }
-              return const Text('Chatroom');
-            },
-          ),
-          actions: [_buildAppBarActions()],
-        ),
+        appBar: _buildAppBar(),
         body: GestureDetector(
           onTap: () {
             if (_showAttachmentOptions) {
@@ -995,13 +1099,6 @@ class _ChatroomPageState extends State<ChatroomPage> {
             children: [
               Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12.0,
-                      vertical: 8,
-                    ),
-                    child: _buildParticipantChips(),
-                  ),
                   Expanded(
                     child: StreamBuilder<QuerySnapshot>(
                       stream: _messagesStream,
@@ -1058,6 +1155,11 @@ class _ChatroomPageState extends State<ChatroomPage> {
                       },
                     ),
                   ),
+                  if (_isUploading)
+                    const LinearProgressIndicator(
+                      minHeight: 2,
+                      backgroundColor: Colors.transparent,
+                    ),
                   _buildMessageInput(),
                 ],
               ),
@@ -1076,5 +1178,129 @@ class _ChatroomPageState extends State<ChatroomPage> {
     _scrollController.dispose();
     _messageController.dispose();
     super.dispose();
+  }
+}
+
+class PollCreationDialog extends StatefulWidget {
+  final Function(String, List<String>) onCreatePoll;
+
+  const PollCreationDialog({Key? key, required this.onCreatePoll})
+    : super(key: key);
+
+  @override
+  _PollCreationDialogState createState() => _PollCreationDialogState();
+}
+
+class _PollCreationDialogState extends State<PollCreationDialog> {
+  final TextEditingController _questionController = TextEditingController();
+  final List<TextEditingController> _optionControllers = [
+    TextEditingController(),
+    TextEditingController(),
+  ];
+
+  @override
+  void dispose() {
+    _questionController.dispose();
+    for (var controller in _optionControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addOption() {
+    setState(() {
+      _optionControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeOption(int index) {
+    if (_optionControllers.length > 2) {
+      setState(() {
+        _optionControllers.removeAt(index);
+      });
+    }
+  }
+
+  void _createPoll() {
+    final question = _questionController.text.trim();
+    final options =
+        _optionControllers
+            .map((controller) => controller.text.trim())
+            .where((option) => option.isNotEmpty)
+            .toList();
+
+    if (question.isEmpty || options.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Veuillez entrer une question et au moins 2 options'),
+        ),
+      );
+      return;
+    }
+
+    widget.onCreatePoll(question, options);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _questionController,
+            decoration: const InputDecoration(
+              labelText: 'Question du sondage',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Options (minimum 2)',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          ..._optionControllers.asMap().entries.map((entry) {
+            final index = entry.key;
+            final controller = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        labelText: 'Option ${index + 1}',
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  if (_optionControllers.length > 2)
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle, color: Colors.red),
+                      onPressed: () => _removeOption(index),
+                    ),
+                ],
+              ),
+            );
+          }),
+          TextButton(
+            onPressed: _addOption,
+            child: const Text('Ajouter une option'),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _createPoll,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('Créer le sondage'),
+          ),
+        ],
+      ),
+    );
   }
 }

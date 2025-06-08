@@ -56,6 +56,9 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.5.3
   timeago: ^3.7.1
+  fl_chart: ^1.0.0
+  image_compression_flutter: ^1.0.4
+  universal_html: ^2.2.4
 
 dev_dependencies:
   flutter_test:

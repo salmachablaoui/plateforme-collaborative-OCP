@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:app_stage/views/profil.dart';
 
@@ -10,6 +12,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool showSearchButton;
   final bool showNotifications;
   final List<Widget>? additionalActions;
+  final int unreadNotificationsCount; // Ajoutez ce paramètre
 
   const CustomAppBar({
     super.key,
@@ -19,7 +22,39 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.showSearchButton = true,
     this.showNotifications = true,
     this.additionalActions,
+    this.unreadNotificationsCount = 0, // Valeur par défaut
   });
+
+  Widget _buildNotificationButton() {
+    return Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Iconsax.notification),
+          onPressed: () {
+            Navigator.pushNamed(scaffoldKey.currentContext!, '/notifications');
+          },
+        ),
+        if (unreadNotificationsCount > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              child: Text(
+                unreadNotificationsCount.toString(),
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +72,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         if (showNotifications) _buildNotificationButton(),
         if (showSearchButton && !isMobile) _buildSearchButton(),
         ...?additionalActions,
-        _buildProfileButton(isMobile),
+        _buildProfileButton(context, isMobile),
         if (!isMobile) const SizedBox(width: 12),
       ],
       elevation: 0,
@@ -45,12 +80,97 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  Widget _buildNotificationButton() {
-    return IconButton(
-      icon: Badge.count(count: 3, child: const Icon(Iconsax.notification)),
-      onPressed: () {
-        Navigator.pushNamed(scaffoldKey.currentContext!, '/notifications');
+  Widget _buildProfileButton(BuildContext context, bool isMobile) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _fetchUserData(),
+      builder: (context, snapshot) {
+        final userData = snapshot.data ?? {};
+        final photoUrl = userData['photoBase64'] ?? user?.photoURL;
+        final displayName =
+            userData['fullName'] ??
+            user?.displayName?.split(' ').first ??
+            'Profil';
+
+        return Tooltip(
+          message: 'Profil',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _navigateToProfile(context),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Row(
+                children: [
+                  _buildProfileAvatar(photoUrl),
+                  if (!isMobile) ...[
+                    const SizedBox(width: 8),
+                    Text(displayName, style: const TextStyle(fontSize: 14)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
       },
+    );
+  }
+
+  Widget _buildProfileAvatar(String? photoUrl) {
+    return Hero(
+      tag: 'appbar-profile-${user?.uid ?? 'default'}',
+      child: Material(
+        color: Colors.transparent,
+        child: CircleAvatar(
+          radius: 16,
+          backgroundColor: Colors.blue.shade100,
+          backgroundImage: _getImageProvider(photoUrl),
+          child:
+              _getImageProvider(photoUrl) == null
+                  ? Text(
+                    user?.email?.substring(0, 1).toUpperCase() ?? 'U',
+                    style: const TextStyle(color: Colors.blue),
+                  )
+                  : null,
+        ),
+      ),
+    );
+  }
+
+  ImageProvider? _getImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+
+    try {
+      if (photoUrl.startsWith('data:image')) {
+        final base64String = photoUrl.split(',').last;
+        return MemoryImage(base64.decode(base64String));
+      }
+      return NetworkImage(photoUrl);
+    } catch (e) {
+      debugPrint('Error loading profile image: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchUserData() async {
+    if (user == null) return {};
+
+    try {
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .get();
+
+      return doc.data() ?? {};
+    } catch (e) {
+      debugPrint('Error fetching user data: $e');
+      return {};
+    }
+  }
+
+  void _navigateToProfile(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ProfileScreen(user: user)),
     );
   }
 
@@ -63,50 +183,6 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           delegate: CustomSearchDelegate(),
         );
       },
-    );
-  }
-
-  Widget _buildProfileButton(bool isMobile) {
-    return Tooltip(
-      message: 'Profil',
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap:
-            () => Navigator.push(
-              scaffoldKey.currentContext!,
-              MaterialPageRoute(
-                builder: (context) => ProfileScreen(user: user),
-              ),
-            ),
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Row(
-            children: [
-              Hero(
-                tag: 'appbar-title-${title.hashCode}', // Hash du titre
-                child: CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Colors.blue.shade100,
-                  child:
-                      user?.photoURL != null
-                          ? ClipOval(child: Image.network(user!.photoURL!))
-                          : Text(
-                            user?.email?.substring(0, 1).toUpperCase() ?? 'U',
-                            style: const TextStyle(color: Colors.blue),
-                          ),
-                ),
-              ),
-              if (!isMobile) ...[
-                const SizedBox(width: 8),
-                Text(
-                  user?.displayName?.split(' ').first ?? 'Profil',
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
     );
   }
 

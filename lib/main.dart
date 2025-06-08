@@ -12,6 +12,7 @@ import 'views/calendar.dart';
 import 'views/settings.dart';
 import 'views/notificationsview.dart';
 import 'views/shared/adaptive_drawer.dart';
+import 'views/welcome_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,8 +39,9 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.green,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      initialRoute: '/login',
+      initialRoute: '/welcome',
       routes: {
+        '/welcome': (ctx) => const WelcomeScreen(),
         '/login': (ctx) => const LoginScreen(),
         '/register': (ctx) => const RegisterScreen(),
         '/home': (ctx) => const HomeScreen(),
